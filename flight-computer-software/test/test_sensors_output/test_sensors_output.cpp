@@ -5,7 +5,8 @@
 
 
 
-#include "Sensors.h"
+#include <Arduino.h>
+#include "../../include/Sensors.h"
 
 Sensors sensors;
 

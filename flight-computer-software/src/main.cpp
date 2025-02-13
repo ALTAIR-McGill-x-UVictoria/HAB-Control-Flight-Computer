@@ -5,8 +5,8 @@ Sources:
   SparkFun_BNO080_Cortex_Based_IMU Library Example
   ArduTFLite Library Example
 */
-
-#include "sensors/Sensors.h"
+#include <Arduino.h>
+#include "Sensors.h"
 
 const int led = 13;
 
