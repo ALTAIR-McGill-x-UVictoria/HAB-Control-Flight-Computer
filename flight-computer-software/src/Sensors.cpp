@@ -21,6 +21,9 @@ library to provide the following data :
 // TODO: Add accuracy stuff, reset checks, validation, etc.
 
 #include "Sensors.h"
+#include <iostream>
+#include <vector>
+#include <cmath>
 
 Sensors::Sensors()
     : temperatureProbe(10, 11, 12, 13), // software SPI: CS, DI, DO, CLK
@@ -187,4 +190,43 @@ void Sensors::setRelativePosition(float px, float py, float pz)
   this->px = px;
   this->py = py;
   this->pz = pz;
+}
+
+
+//NEW CODE HERE FOR SENSOR FUSION
+// Function to apply Kalman filter to fuse IMU data (yaw, pitch, roll)
+void Sensors::KalmanFilterIMU(const std::vector<float>& yawData, const std::vector<float>& pitchData, const std::vector<float>& rollData,
+                     float processNoise, float measurementNoise, float estimationError) {
+    // Initialize Kalman filter parameters for yaw, pitch, and roll
+    float P_yaw = estimationError, P_pitch = estimationError, P_roll = estimationError;
+    float K_yaw = 0, K_pitch = 0, K_roll = 0; // Kalman gains
+    float X_yaw = 0, X_pitch = 0, X_roll = 0; // Estimated values (fused estimates)
+
+    // Loop through each measurement and update the Kalman filter
+    for (size_t i = 0; i < yawData.size(); ++i) {
+        // Prediction step: The predicted value is just the previous estimate (no motion model)
+        float predictedX_yaw = X_yaw;
+        float predictedX_pitch = X_pitch;
+        float predictedX_roll = X_roll;
+
+        // Measurement update step for Yaw
+        K_yaw = (P_yaw + processNoise) / (P_yaw + processNoise + measurementNoise);
+        X_yaw = predictedX_yaw + K_yaw * (yawData[i] - predictedX_yaw);
+        P_yaw = (1 - K_yaw) * (P_yaw + processNoise);
+
+        // Measurement update step for Pitch
+        K_pitch = (P_pitch + processNoise) / (P_pitch + processNoise + measurementNoise);
+        X_pitch = predictedX_pitch + K_pitch * (pitchData[i] - predictedX_pitch);
+        P_pitch = (1 - K_pitch) * (P_pitch + processNoise);
+
+        // Measurement update step for Roll
+        K_roll = (P_roll + processNoise) / (P_roll + processNoise + measurementNoise);
+        X_roll = predictedX_roll + K_roll * (rollData[i] - predictedX_roll);
+        P_roll = (1 - K_roll) * (P_roll + processNoise);
+
+        // Output the fused results for yaw, pitch, and roll
+        std::cout << "Fused Yaw: " << X_yaw
+                  << ", Fused Pitch: " << X_pitch
+                  << ", Fused Roll: " << X_roll << std::endl;
+    }
 }
