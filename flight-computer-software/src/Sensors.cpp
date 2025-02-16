@@ -107,7 +107,7 @@ float Sensors::getAltitude()
   return altimeter.getAltitude();
 }
 
-void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az)
+void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az, float &linearaccuracy)
 {
   if (imu.hasReset())
   {
@@ -119,6 +119,7 @@ void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az)
     ax = imu.getLinAccelX();
     ay = imu.getLinAccelY();
     az = imu.getLinAccelZ();
+    linearaccuracy = imu.getLinAccelAccuracy();
   }
 }
 
@@ -142,8 +143,8 @@ void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, 
 
 void Sensors::getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz)
 {
-  float ax = 0.0, ay = 0.0, az = 0.0;
-  getLinearAcceleration(imu, ax, ay, az);
+  float ax = 0.0, ay = 0.0, az = 0.0, accuracy = 0.0;
+  getLinearAcceleration(imu, ax, ay, az, accuracy);
 
   unsigned long currentTime = millis();
   float dt = (currentTime - lastVelocityUpdateTime) / 1000.0; // Convert to seconds
@@ -191,27 +192,32 @@ void Sensors::setRelativePosition(float px, float py, float pz)
 // NEW CODE HERE FOR SENSOR FUSION
 // use median filter to get the most accurate data out of IMU1, IMU2, IMU3
 
-void Sensors::getFusedLinearAcceleration(float &ax, float &ay, float &az)
+void Sensors::getFusedLinearAcceleration(float &ax, float &ay, float &az, float &axaverage, float &ayaverage, float &azaverage)
 {
-  float ax1, ay1, az1;
-  float ax2, ay2, az2;
-  float ax3, ay3, az3;
+  float ax1, ay1, az1, linearaccuracy1;
+  float ax2, ay2, az2, linearaccuracy2;
+  float ax3, ay3, az3, linearaccuracy3;
 
-  getLinearAcceleration(imu1, ax1, ay1, az1);
-  getLinearAcceleration(imu2, ax2, ay2, az2);
-  getLinearAcceleration(imu3, ax3, ay3, az3);
+  getLinearAcceleration(imu1, ax1, ay1, az1, linearaccuracy1);
+  getLinearAcceleration(imu2, ax2, ay2, az2, linearaccuracy2);
+  getLinearAcceleration(imu3, ax3, ay3, az3, linearaccuracy3);
 
   std::vector<float> axValues = {ax1, ax2, ax3};
   std::vector<float> ayValues = {ay1, ay2, ay3};
   std::vector<float> azValues = {az1, az2, az3};
+  std::vector<float> linearaccuracy = {linearaccuracy1, linearaccuracy2, linearaccuracy3};
 
   // call sensorFusion function
-  ax = sensorFusion(axValues, {});
-  ay = sensorFusion(ayValues, {});
-  az = sensorFusion(azValues, {});
+  ax = sensorFusionMedian(axValues, {});
+  ay = sensorFusionMedian(ayValues, {});
+  az = sensorFusionMedian(azValues, {});
+
+  axaverage = sensorFusionWeightedAverage(axValues, linearaccuracy);
+  ayaverage = sensorFusionWeightedAverage(ayValues, linearaccuracy);
+  azaverage = sensorFusionWeightedAverage(azValues, linearaccuracy);
 }
 
-void Sensors::getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees)
+void Sensors::getFusedOrientation(float &yawMedian, float &yawAverage, float &pitchMedian, float &pitchAverage, float &rollMedian, float &rollAverage, float &accuracyDegrees)
 {
   float yaw1, pitch1, roll1, accuracy1;
   float yaw2, pitch2, roll2, accuracy2;
@@ -221,20 +227,30 @@ void Sensors::getFusedOrientation(float &yaw, float &pitch, float &roll, float &
   getOrientation(imu2, yaw2, pitch2, roll2, accuracy2);
   getOrientation(imu3, yaw3, pitch3, roll3, accuracy3);
 
+  //convert values to radians
+
+
+
   std::vector<float> yawValues = {yaw1, yaw2, yaw3};
   std::vector<float> pitchValues = {pitch1, pitch2, pitch3};
   std::vector<float> rollValues = {roll1, roll2, roll3};
   std::vector<float> accuracyValues = {accuracy1, accuracy2, accuracy3};
 
   // call sensorFusion function
-  yaw = sensorFusion(yawValues, accuracyValues);
-  pitch = sensorFusion(pitchValues, accuracyValues);
-  roll = sensorFusion(rollValues, accuracyValues);
+  yawMedian = sensorFusionMedian(yawValues, accuracyValues);
+  pitchMedian = sensorFusionMedian(pitchValues, accuracyValues);
+  rollMedian = sensorFusionMedian(rollValues, accuracyValues);
+
+  yawAverage = sensorFusionWeightedAverage(yawValues, accuracyValues);
+  pitchAverage = sensorFusionWeightedAverage(pitchValues, accuracyValues);
+  rollAverage = sensorFusionWeightedAverage(rollValues, accuracyValues);
+
+ 
 }
 
 // get the median value of a vector, filters out outliers
 // TODO: add accuracy values to the function
-float Sensors::sensorFusion(std::vector<float> values, std::vector<float> accuracy)
+float Sensors::sensorFusionMedian(std::vector<float> values, std::vector<float> accuracy)
 {
   // get the median of three values
   if (values.size() == 3)
@@ -248,4 +264,20 @@ float Sensors::sensorFusion(std::vector<float> values, std::vector<float> accura
     // TODO, what happens if a sensor isnt working? does it still give a value??
   }*/
  return 0.0;
+}
+
+//make another sensorFusonAvg function that does weighted average based on accuracy values
+float Sensors::sensorFusionWeightedAverage(std::vector<float> values, std::vector<float> accuracy)
+{
+ 
+  values[0] = values[0] * accuracy[0];
+  values[1] = values[1] * accuracy[1];
+  values[2] = values[2] * accuracy[2];
+
+  float sum = values[0] + values[1] + values[2];
+  float sumAccuracy = accuracy[0] + accuracy[1] + accuracy[2];
+
+  float weightedAverage = sum / sumAccuracy;
+
+  return weightedAverage;
 }

@@ -38,15 +38,18 @@ public:
   float getTemperature();
   float getPressure();
   float getAltitude();
-  void getLinearAcceleration(BNO080 imu, float &x, float &y, float &z);
+  void getLinearAcceleration(BNO080 imu, float &x, float &y, float &z, float &accuracy);
   void getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees);
   void getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz);
   void getRelativePosition(BNO080 imu, float &px, float &py, float &pz);
   void setRelativeVelocity(float vx, float vy, float vz);
   void setRelativePosition(float px, float py, float pz);
-  void getFusedLinearAcceleration(float &ax, float &ay, float &az);
-  void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
-  float sensorFusion(std::vector<float> values, std::vector<float> accuracy);
+  //void getFusedLinearAcceleration(float &ax, float &ay, float &az);
+  void getFusedLinearAcceleration(float &ax, float &ay, float &az, float &axaverage, float &ayaverage, float &azaverage);
+  //void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
+  void getFusedOrientation(float &yawMedian, float &yawAverage, float &pitchMedian, float &pitchAverage, float &rollMedian, float &rollAverage, float &accuracyDegrees);
+  float sensorFusionMedian(std::vector<float> values, std::vector<float> accuracy);
+  float sensorFusionWeightedAverage(std::vector<float> values, std::vector<float> accuracy);
 
   Adafruit_MAX31865 temperatureProbe;
   MS5607 altimeter;

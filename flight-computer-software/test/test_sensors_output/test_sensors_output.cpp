@@ -39,14 +39,14 @@ void loop() {
 
 
   // Get acceleration for IMU 1
-  float ax1, ay1, az1;
-  sensors.getLinearAcceleration(sensors.imu1, ax1, ay1, az1);
+  float ax1, ay1, az1, linearaccuracy1;
+  sensors.getLinearAcceleration(sensors.imu1, ax1, ay1, az1, linearaccuracy1);
   // Get acceleration for IMU 2
-  float ax2, ay2, az2;
-  sensors.getLinearAcceleration(sensors.imu2, ax2, ay2, az2);
+  float ax2, ay2, az2, linearaccuracy2;
+  sensors.getLinearAcceleration(sensors.imu2, ax2, ay2, az2, linearaccuracy2);
   // Get acceleration for IMU 3
-  float ax3, ay3, az3;
-  sensors.getLinearAcceleration(sensors.imu3, ax3, ay3, az3);
+  float ax3, ay3, az3, linearaccuracy3;
+  sensors.getLinearAcceleration(sensors.imu3, ax3, ay3, az3, linearaccuracy3);
 
   // Get orientation for IMU 1
   float yaw1, pitch1, roll1, accuracy1;
@@ -58,11 +58,13 @@ void loop() {
   float yaw3, pitch3, roll3, accuracy3;
   sensors.getOrientation(sensors.imu3, yaw3, pitch3, roll3, accuracy3);
 
-  float ax, ay, az;
-  float yaw, pitch, roll, accuracy;
+  float ax, ay, az, axaverage, ayaverage, azaverage;
+  //float yaw, pitch, roll, accuracy;
+  float yawMedian, yawAverage, pitchMedian, pitchAverage, rollMedian, rollAverage, accuracyDegrees;
+ 
 
-  sensors.getFusedLinearAcceleration(ax, ay, az);
-  sensors.getFusedOrientation(yaw, pitch, roll, accuracy);
+  sensors.getFusedLinearAcceleration(ax, ay, az, axaverage, ayaverage, azaverage);
+  sensors.getFusedOrientation(yawMedian, yawAverage, pitchMedian, pitchAverage, rollMedian, rollAverage, accuracyDegrees);
 
 
   // Get relative velocity for IMU 1
@@ -73,20 +75,27 @@ void loop() {
   float px1, py1, pz1;
   sensors.getRelativePosition(sensors.imu1, px1, py1, pz1);
 
+
   // Print data
   Serial.println("Temperature: " + String(temperature) + " C");
   Serial.println("Pressure: " + String(pressure) + " hPa");
   Serial.println("Altitude: " + String(altitude) + " m");
   
-  Serial.println("Acceleration (IMU 1): X: " + String(ax1) + " Y: " + String(ay1) + " Z: " + String(az1));
-  Serial.println("Acceleration (IMU 2): X: " + String(ax2) + " Y: " + String(ay2) + " Z: " + String(az2));
-  Serial.println("Acceleration (IMU 3): X: " + String(ax3) + " Y: " + String(ay3) + " Z: " + String(az3));
+  Serial.println("Acceleration (IMU 1): X: " + String(ax1) + " Y: " + String(ay1) + " Z: " + String(az1) + " Accuracy: " + String(linearaccuracy1));
+  Serial.println("Acceleration (IMU 2): X: " + String(ax2) + " Y: " + String(ay2) + " Z: " + String(az2) + " Accuracy: " + String(linearaccuracy2));
+  Serial.println("Acceleration (IMU 3): X: " + String(ax3) + " Y: " + String(ay3) + " Z: " + String(az3) + " Accuracy: " + String(linearaccuracy3));
   
   Serial.println("Orientation (IMU 1): Yaw: " + String(yaw1) + " Pitch: " + String(pitch1) + " Roll: " + String(roll1) + " Accuracy: " + String(accuracy1));
   Serial.println("Orientation (IMU 2): Yaw: " + String(yaw2) + " Pitch: " + String(pitch2) + " Roll: " + String(roll2) + " Accuracy: " + String(accuracy2));
   Serial.println("Orientation (IMU 3): Yaw: " + String(yaw3) + " Pitch: " + String(pitch3) + " Roll: " + String(roll3) + " Accuracy: " + String(accuracy3));
-  Serial.println("Fused Acceleration: X: " + String(ax) + " Y: " + String(ay) + " Z: " + String(az));
-  Serial.println("Fused Orientation: Yaw: " + String(yaw) + " Pitch: " + String(pitch) + " Roll: " + String(roll) + " Accuracy: " + String(accuracy2));
+  
+  Serial.println("Median Acceleration: X: " + String(ax) + " Y: " + String(ay) + " Z: " + String(az));
+  Serial.println("Weighted Avg Accel: X: " + String(axaverage) + " Y: " + String(ayaverage) + " Z: " + String(azaverage));
+  
+  Serial.println("Median Orientation: Yaw: " + String(yawMedian) + " Pitch: " + String(pitchMedian) + " Roll: " + String(rollMedian));
+  Serial.println("Weighted Avg Orientation: Yaw: " + String(yawAverage) + " Pitch: " + String(pitchAverage) + " Roll: " + String(rollAverage));
+  
+  
   Serial.println("Relative Velocity: Vx: " + String(vx1) + " Vy: " + String(vy1) + " Vz: " + String(vz1));
   Serial.println("Relative Position: Px: " + String(px1) + " Py: " + String(py1) + " Pz: " + String(pz1));
 
