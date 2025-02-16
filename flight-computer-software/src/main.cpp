@@ -17,16 +17,6 @@ void setup() {
   Serial.begin(115200);  // start serial for output
   while (!Serial) delay(10);
 
-
-  //add initial values for kalman filter
-  float processNoise = 0.001;  // Process noise covariance
-  float measurementNoise = 0.1;  // Measurement noise covariance
-  float estimationError = 1.0;  // Initial estimation error covariance
-
-  std::vector<float> yawData;
-  std::vector<float> pitchData;
-  std::vector<float> rollData;
-
   
 }
 
@@ -40,8 +30,6 @@ void loop() {
 
   digitalWrite(led, LOW);
   delay(100);
-  KalmanFilterIMU(yawData, pitchData, rollData, processNoise, measurementNoise, estimationError);
-
-
+ 
 }
 

@@ -21,6 +21,7 @@ library to provide the following data :
 #include <Adafruit_MAX31865.h>
 #include <MS5607.h>
 #include <SparkFun_BNO080_Arduino_Library.h>
+#include <vector>
 
 // The value of the Rref resistor: 430.0 for PT100
 #define RREF 430.0
@@ -43,6 +44,9 @@ public:
   void getRelativePosition(BNO080 imu, float &px, float &py, float &pz);
   void setRelativeVelocity(float vx, float vy, float vz);
   void setRelativePosition(float px, float py, float pz);
+  void getFusedLinearAcceleration(float &ax, float &ay, float &az);
+  void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
+  float sensorFusion(std::vector<float> values, std::vector<float> accuracy);
 
   Adafruit_MAX31865 temperatureProbe;
   MS5607 altimeter;

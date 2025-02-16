@@ -14,11 +14,9 @@ void setup() {
   Serial.begin(115200);
   while (!Serial)
     delay(10);
-  if (!sensors.begin()) {
-    Serial.println("Stopping program.");
-    while (1) {
-      delay(10);
-    }
+  while (!sensors.begin()) {
+    Serial.println("Retrying sensor initialization.");
+    delay(10);
   }
   uint16_t interval = 10;
   sensors.enableReports(sensors.imu1, interval);
@@ -60,6 +58,13 @@ void loop() {
   float yaw3, pitch3, roll3, accuracy3;
   sensors.getOrientation(sensors.imu3, yaw3, pitch3, roll3, accuracy3);
 
+  float ax, ay, az;
+  float yaw, pitch, roll, accuracy;
+
+  sensors.getFusedLinearAcceleration(ax, ay, az);
+  sensors.getFusedOrientation(yaw, pitch, roll, accuracy);
+
+
   // Get relative velocity for IMU 1
   float vx1, vy1, vz1;
   sensors.getRelativeVelocity(sensors.imu1, vx1, vy1, vz1);
@@ -72,11 +77,21 @@ void loop() {
   Serial.println("Temperature: " + String(temperature) + " C");
   Serial.println("Pressure: " + String(pressure) + " hPa");
   Serial.println("Altitude: " + String(altitude) + " m");
+  
   Serial.println("Acceleration (IMU 1): X: " + String(ax1) + " Y: " + String(ay1) + " Z: " + String(az1));
+  Serial.println("Acceleration (IMU 2): X: " + String(ax2) + " Y: " + String(ay2) + " Z: " + String(az2));
+  Serial.println("Acceleration (IMU 3): X: " + String(ax3) + " Y: " + String(ay3) + " Z: " + String(az3));
+  
+  Serial.println("Orientation (IMU 1): Yaw: " + String(yaw1) + " Pitch: " + String(pitch1) + " Roll: " + String(roll1) + " Accuracy: " + String(accuracy1));
   Serial.println("Orientation (IMU 2): Yaw: " + String(yaw2) + " Pitch: " + String(pitch2) + " Roll: " + String(roll2) + " Accuracy: " + String(accuracy2));
   Serial.println("Orientation (IMU 3): Yaw: " + String(yaw3) + " Pitch: " + String(pitch3) + " Roll: " + String(roll3) + " Accuracy: " + String(accuracy3));
+  Serial.println("Fused Acceleration: X: " + String(ax) + " Y: " + String(ay) + " Z: " + String(az));
+  Serial.println("Fused Orientation: Yaw: " + String(yaw) + " Pitch: " + String(pitch) + " Roll: " + String(roll) + " Accuracy: " + String(accuracy2));
   Serial.println("Relative Velocity: Vx: " + String(vx1) + " Vy: " + String(vy1) + " Vz: " + String(vz1));
   Serial.println("Relative Position: Px: " + String(px1) + " Py: " + String(py1) + " Pz: " + String(pz1));
+
+
+  Serial.println("--------------------------");
 
   // Set new relative velocity
   // sensors.setRelativeVelocity(0.0, 0.0, 0.0);

@@ -21,9 +21,6 @@ library to provide the following data :
 // TODO: Add accuracy stuff, reset checks, validation, etc.
 
 #include "Sensors.h"
-#include <iostream>
-#include <vector>
-#include <cmath>
 
 Sensors::Sensors()
     : temperatureProbe(10, 11, 12, 13), // software SPI: CS, DI, DO, CLK
@@ -91,7 +88,6 @@ void Sensors::enableReports(BNO080 imu, uint16_t interval)
 {
   imu.enableRotationVector(interval);
   imu.enableLinearAccelerometer(interval);
-  //imu.enableMagnometer(interval);
 }
 
 float Sensors::getTemperature()
@@ -130,7 +126,7 @@ void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, 
 {
   if (imu.hasReset())
   {
-    //Serial.println("IMU has reset. Reason: " + imu.resetReason());
+    //Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
     enableReports(imu);
   }
   if (imu.dataAvailable())
@@ -192,41 +188,64 @@ void Sensors::setRelativePosition(float px, float py, float pz)
   this->pz = pz;
 }
 
+// NEW CODE HERE FOR SENSOR FUSION
+// use median filter to get the most accurate data out of IMU1, IMU2, IMU3
 
-//NEW CODE HERE FOR SENSOR FUSION
-// Function to apply Kalman filter to fuse IMU data (yaw, pitch, roll)
-void Sensors::KalmanFilterIMU(const std::vector<float>& yawData, const std::vector<float>& pitchData, const std::vector<float>& rollData,
-                     float processNoise, float measurementNoise, float estimationError) {
-    // Initialize Kalman filter parameters for yaw, pitch, and roll
-    float P_yaw = estimationError, P_pitch = estimationError, P_roll = estimationError;
-    float K_yaw = 0, K_pitch = 0, K_roll = 0; // Kalman gains
-    float X_yaw = 0, X_pitch = 0, X_roll = 0; // Estimated values (fused estimates)
+void Sensors::getFusedLinearAcceleration(float &ax, float &ay, float &az)
+{
+  float ax1, ay1, az1;
+  float ax2, ay2, az2;
+  float ax3, ay3, az3;
 
-    // Loop through each measurement and update the Kalman filter
-    for (size_t i = 0; i < yawData.size(); ++i) {
-        // Prediction step: The predicted value is just the previous estimate (no motion model)
-        float predictedX_yaw = X_yaw;
-        float predictedX_pitch = X_pitch;
-        float predictedX_roll = X_roll;
+  getLinearAcceleration(imu1, ax1, ay1, az1);
+  getLinearAcceleration(imu2, ax2, ay2, az2);
+  getLinearAcceleration(imu3, ax3, ay3, az3);
 
-        // Measurement update step for Yaw
-        K_yaw = (P_yaw + processNoise) / (P_yaw + processNoise + measurementNoise);
-        X_yaw = predictedX_yaw + K_yaw * (yawData[i] - predictedX_yaw);
-        P_yaw = (1 - K_yaw) * (P_yaw + processNoise);
+  std::vector<float> axValues = {ax1, ax2, ax3};
+  std::vector<float> ayValues = {ay1, ay2, ay3};
+  std::vector<float> azValues = {az1, az2, az3};
 
-        // Measurement update step for Pitch
-        K_pitch = (P_pitch + processNoise) / (P_pitch + processNoise + measurementNoise);
-        X_pitch = predictedX_pitch + K_pitch * (pitchData[i] - predictedX_pitch);
-        P_pitch = (1 - K_pitch) * (P_pitch + processNoise);
+  // call sensorFusion function
+  ax = sensorFusion(axValues, {});
+  ay = sensorFusion(ayValues, {});
+  az = sensorFusion(azValues, {});
+}
 
-        // Measurement update step for Roll
-        K_roll = (P_roll + processNoise) / (P_roll + processNoise + measurementNoise);
-        X_roll = predictedX_roll + K_roll * (rollData[i] - predictedX_roll);
-        P_roll = (1 - K_roll) * (P_roll + processNoise);
+void Sensors::getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees)
+{
+  float yaw1, pitch1, roll1, accuracy1;
+  float yaw2, pitch2, roll2, accuracy2;
+  float yaw3, pitch3, roll3, accuracy3;
 
-        // Output the fused results for yaw, pitch, and roll
-        std::cout << "Fused Yaw: " << X_yaw
-                  << ", Fused Pitch: " << X_pitch
-                  << ", Fused Roll: " << X_roll << std::endl;
+  getOrientation(imu1, yaw1, pitch1, roll1, accuracy1);
+  getOrientation(imu2, yaw2, pitch2, roll2, accuracy2);
+  getOrientation(imu3, yaw3, pitch3, roll3, accuracy3);
+
+  std::vector<float> yawValues = {yaw1, yaw2, yaw3};
+  std::vector<float> pitchValues = {pitch1, pitch2, pitch3};
+  std::vector<float> rollValues = {roll1, roll2, roll3};
+  std::vector<float> accuracyValues = {accuracy1, accuracy2, accuracy3};
+
+  // call sensorFusion function
+  yaw = sensorFusion(yawValues, accuracyValues);
+  pitch = sensorFusion(pitchValues, accuracyValues);
+  roll = sensorFusion(rollValues, accuracyValues);
+}
+
+// get the median value of a vector, filters out outliers
+// TODO: add accuracy values to the function
+float Sensors::sensorFusion(std::vector<float> values, std::vector<float> accuracy)
+{
+  // get the median of three values
+  if (values.size() == 3)
+    {
+      std::sort(values.begin(), values.end());
+      float medianValue = values[3 / 2];
+      return medianValue;
     }
+  /*else
+  {
+    // TODO, what happens if a sensor isnt working? does it still give a value??
+  }*/
+ return 0.0;
 }
