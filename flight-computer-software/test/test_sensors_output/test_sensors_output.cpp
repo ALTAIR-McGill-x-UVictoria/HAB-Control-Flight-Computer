@@ -2,9 +2,6 @@
  *  This is a test program for Sensors, printing the data from the sensors.
  */
 
-
-
-
 #include <Arduino.h>
 #include "../../include/Sensors.h"
 
@@ -27,7 +24,7 @@ void setup() {
 
 void loop() {
 
-
+  //Serial.println("hello");
   // Get temperature
   float temperature = sensors.getTemperature();
 
@@ -38,6 +35,7 @@ void loop() {
   float altitude = sensors.getAltitude();
 
 
+  //Serial.println("hello2");
   // Get acceleration for IMU 1
   float ax1, ay1, az1, linearaccuracy1;
   sensors.getLinearAcceleration(sensors.imu1, ax1, ay1, az1, linearaccuracy1);
@@ -48,6 +46,8 @@ void loop() {
   float ax3, ay3, az3, linearaccuracy3;
   sensors.getLinearAcceleration(sensors.imu3, ax3, ay3, az3, linearaccuracy3);
 
+
+  //Serial.println("hello3");
   // Get orientation for IMU 1
   float yaw1, pitch1, roll1, accuracy1;
   sensors.getOrientation(sensors.imu1, yaw1, pitch1, roll1, accuracy1);
@@ -58,14 +58,15 @@ void loop() {
   float yaw3, pitch3, roll3, accuracy3;
   sensors.getOrientation(sensors.imu3, yaw3, pitch3, roll3, accuracy3);
 
-  float ax, ay, az, axaverage, ayaverage, azaverage;
-  //float yaw, pitch, roll, accuracy;
-  float yawMedian, yawAverage, pitchMedian, pitchAverage, rollMedian, rollAverage, accuracyDegrees;
- 
+  float ax, ay, az, mylinearaccuracy;
+  float yaw, pitch, roll, accuracyDegrees;
 
-  sensors.getFusedLinearAcceleration(ax, ay, az, axaverage, ayaverage, azaverage);
-  sensors.getFusedOrientation(yawMedian, yawAverage, pitchMedian, pitchAverage, rollMedian, rollAverage, accuracyDegrees);
 
+  //Serial.println("hello4");
+  sensors.getFusedLinearAcceleration(ax, ay, az, mylinearaccuracy);
+  
+  //Serial.println("hello5");
+  sensors.getFusedOrientation(yaw, pitch, roll, accuracyDegrees);
 
   // Get relative velocity for IMU 1
   float vx1, vy1, vz1;
@@ -74,7 +75,6 @@ void loop() {
   // Get relative position for IMU 1
   float px1, py1, pz1;
   sensors.getRelativePosition(sensors.imu1, px1, py1, pz1);
-
 
   // Print data
   Serial.println("Temperature: " + String(temperature) + " C");
@@ -90,15 +90,10 @@ void loop() {
   Serial.println("Orientation (IMU 3): Yaw: " + String(yaw3) + " Pitch: " + String(pitch3) + " Roll: " + String(roll3) + " Accuracy: " + String(accuracy3));
   
   Serial.println("Median Acceleration: X: " + String(ax) + " Y: " + String(ay) + " Z: " + String(az));
-  Serial.println("Weighted Avg Accel: X: " + String(axaverage) + " Y: " + String(ayaverage) + " Z: " + String(azaverage));
-  
-  Serial.println("Median Orientation: Yaw: " + String(yawMedian) + " Pitch: " + String(pitchMedian) + " Roll: " + String(rollMedian));
-  Serial.println("Weighted Avg Orientation: Yaw: " + String(yawAverage) + " Pitch: " + String(pitchAverage) + " Roll: " + String(rollAverage));
-  
+  Serial.println("Median Orientation: Yaw: " + String(yaw) + " Pitch: " + String(pitch) + " Roll: " + String(roll));
   
   Serial.println("Relative Velocity: Vx: " + String(vx1) + " Vy: " + String(vy1) + " Vz: " + String(vz1));
   Serial.println("Relative Position: Px: " + String(px1) + " Py: " + String(py1) + " Pz: " + String(pz1));
-
 
   Serial.println("--------------------------");
 

@@ -31,31 +31,80 @@ library to provide the following data :
 class Sensors
 {
 public:
+  //Constructor
   Sensors();
 
+  //Initializes the sensors
   bool begin();
+  
+  //Enables reports for the IMU
+  //params: BNO080 imu, uint16_t interval
   void enableReports(BNO080 imu, uint16_t interval = 10);
-  float getTemperature();
+  
+  //Gets the temperature in degrees Celsius
+  //returns: float temperature
+  float getTemperature(); 
+  
+  //Gets the pressure in hPa
+  //returns: float pressure 
   float getPressure();
-  float getAltitude();
-  void getLinearAcceleration(BNO080 imu, float &x, float &y, float &z, float &accuracy);
-  void getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees);
-  void getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz);
-  void getRelativePosition(BNO080 imu, float &px, float &py, float &pz);
-  void setRelativeVelocity(float vx, float vy, float vz);
-  void setRelativePosition(float px, float py, float pz);
-  //void getFusedLinearAcceleration(float &ax, float &ay, float &az);
-  void getFusedLinearAcceleration(float &ax, float &ay, float &az, float &axaverage, float &ayaverage, float &azaverage);
-  //void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
-  void getFusedOrientation(float &yawMedian, float &yawAverage, float &pitchMedian, float &pitchAverage, float &rollMedian, float &rollAverage, float &accuracyDegrees);
-  float sensorFusionMedian(std::vector<float> values, std::vector<float> accuracy);
-  float sensorFusionWeightedAverage(std::vector<float> values, std::vector<float> accuracy);
 
+  //Gets the altitude
+  //returns: float altitude
+  float getAltitude();
+
+  //Gets the linear acceleration
+  //If data is not available from a sensor, set the accuracy to -1
+  //params: BNO080 imu, float &x, float &y, float &z, float &accuracy
+  void getLinearAcceleration(BNO080 imu, float &x, float &y, float &z, float &accuracy);
+
+  //Gets the orientation
+  //If data is not available from a sensor, set the accuracy to -1
+  //params: BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees
+  void getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees);
+  
+  //Gets the relative velocity
+  //params: BNO080 imu, float &vx, float &vy, float &vz
+  void getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz);
+
+  //Gets the relative position
+  //params: BNO080 imu, float &px, float &py, float &pz
+  void getRelativePosition(BNO080 imu, float &px, float &py, float &pz);
+  
+  //Sets the relative velocity
+  //params: float vx, float vy, float vz
+  void setRelativeVelocity(float vx, float vy, float vz);
+
+  //Sets the relative position
+  //params: float px, float py, float pz
+  void setRelativePosition(float px, float py, float pz);
+
+  //Gets the fused linear acceleration, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  //params: float &ax, float &ay, float &az, float &linearaccuracy
+  void getFusedLinearAcceleration(float &ax, float &ay, float &az, float &linearaccuracy);
+
+  //Gets the fused orientation, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  //params: float &yaw, float &pitch, float &roll, float &accuracyDegrees
+  void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
+
+  //If 3 sensors are working, get the median value, filters out outliers. 
+  //If only 2 sensors are working, return the value with best accuracy
+  //If only one sensor is working, return that value
+  //Used inside of getFusedLinearAcceleration and getFusedOrientation
+  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
+  float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
+
+  //The temperature probe sensor
   Adafruit_MAX31865 temperatureProbe;
+  
+  //The pressure sensor
   MS5607 altimeter;
+  
+  //The IMUs, there are 3 IMUs
   BNO080 imu1;
   BNO080 imu2;
   BNO080 imu3;
+
   unsigned long lastVelocityUpdateTime;
   unsigned long lastPositionUpdateTime;
   float vx, vy, vz;

@@ -120,6 +120,10 @@ void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az,
     ay = imu.getLinAccelY();
     az = imu.getLinAccelZ();
     linearaccuracy = imu.getLinAccelAccuracy();
+  } 
+  else // if data is not available, make the accuracy -1
+  {
+    linearaccuracy = -1.0; //negative value means accuracy is not available
   }
 }
 
@@ -138,6 +142,10 @@ void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, 
     yaw = imu.getYaw() * 180.0 / PI;
     pitch = imu.getPitch() * 180.0 / PI;
     roll = imu.getRoll() * 180.0 / PI;
+  } 
+  else // if data is not available, make the accuracy negative
+  {
+    accuracyDegrees = -1.0; //negative value means accuracy is not available
   }
 }
 
@@ -189,10 +197,9 @@ void Sensors::setRelativePosition(float px, float py, float pz)
   this->pz = pz;
 }
 
-// NEW CODE HERE FOR SENSOR FUSION
-// use median filter to get the most accurate data out of IMU1, IMU2, IMU3
 
-void Sensors::getFusedLinearAcceleration(float &ax, float &ay, float &az, float &axaverage, float &ayaverage, float &azaverage)
+// use median filter to get the most accurate data out of IMU1, IMU2, IMU3
+void Sensors::getFusedLinearAcceleration(float &ax, float &ay, float &az, float &linearaccuracy)
 {
   float ax1, ay1, az1, linearaccuracy1;
   float ax2, ay2, az2, linearaccuracy2;
@@ -205,19 +212,15 @@ void Sensors::getFusedLinearAcceleration(float &ax, float &ay, float &az, float 
   std::vector<float> axValues = {ax1, ax2, ax3};
   std::vector<float> ayValues = {ay1, ay2, ay3};
   std::vector<float> azValues = {az1, az2, az3};
-  std::vector<float> linearaccuracy = {linearaccuracy1, linearaccuracy2, linearaccuracy3};
+  std::vector<float> accuracyvalues = {linearaccuracy1, linearaccuracy2, linearaccuracy3};
 
   // call sensorFusion function
-  ax = sensorFusionMedian(axValues, {});
-  ay = sensorFusionMedian(ayValues, {});
-  az = sensorFusionMedian(azValues, {});
-
-  axaverage = sensorFusionWeightedAverage(axValues, linearaccuracy);
-  ayaverage = sensorFusionWeightedAverage(ayValues, linearaccuracy);
-  azaverage = sensorFusionWeightedAverage(azValues, linearaccuracy);
+  ax = sensorFusion(axValues, accuracyvalues, false);
+  ay = sensorFusion(ayValues, accuracyvalues, false);
+  az = sensorFusion(azValues, accuracyvalues, false);
 }
 
-void Sensors::getFusedOrientation(float &yawMedian, float &yawAverage, float &pitchMedian, float &pitchAverage, float &rollMedian, float &rollAverage, float &accuracyDegrees)
+void Sensors::getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees)
 {
   float yaw1, pitch1, roll1, accuracy1;
   float yaw2, pitch2, roll2, accuracy2;
@@ -227,57 +230,61 @@ void Sensors::getFusedOrientation(float &yawMedian, float &yawAverage, float &pi
   getOrientation(imu2, yaw2, pitch2, roll2, accuracy2);
   getOrientation(imu3, yaw3, pitch3, roll3, accuracy3);
 
-  //convert values to radians
-
-
-
   std::vector<float> yawValues = {yaw1, yaw2, yaw3};
   std::vector<float> pitchValues = {pitch1, pitch2, pitch3};
   std::vector<float> rollValues = {roll1, roll2, roll3};
   std::vector<float> accuracyValues = {accuracy1, accuracy2, accuracy3};
 
   // call sensorFusion function
-  yawMedian = sensorFusionMedian(yawValues, accuracyValues);
-  pitchMedian = sensorFusionMedian(pitchValues, accuracyValues);
-  rollMedian = sensorFusionMedian(rollValues, accuracyValues);
-
-  yawAverage = sensorFusionWeightedAverage(yawValues, accuracyValues);
-  pitchAverage = sensorFusionWeightedAverage(pitchValues, accuracyValues);
-  rollAverage = sensorFusionWeightedAverage(rollValues, accuracyValues);
-
- 
+  yaw = sensorFusion(yawValues, accuracyValues, true);
+  pitch = sensorFusion(pitchValues, accuracyValues, true);
+  roll = sensorFusion(rollValues, accuracyValues, true);
 }
 
 // get the median value of a vector, filters out outliers
-// TODO: add accuracy values to the function
-float Sensors::sensorFusionMedian(std::vector<float> values, std::vector<float> accuracy)
+//use bool accuracyDegrees to determine type of accuracy (linear or orientation)
+float Sensors::sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees)
 {
-  // get the median of three values
-  if (values.size() == 3)
+  //want to ignore any values that have a negative accuracy
+  //check if there is a negative value in the accuracy vector
+  //want to check if there is a negative value in accuracy vector, if there is, remove corresponding value from values vector
+  std::vector<float> new_values;  //create new vectors to store values and accuracy that are not negative
+  std::vector<float> new_accuracy;
+  int valuesize = values.size();
+  for (int i = 0; i < valuesize; i++)
     {
-      std::sort(values.begin(), values.end());
-      float medianValue = values[3 / 2];
-      return medianValue;
+      if (accuracy[i] >= 0) //if accuracy is positive or 0
+        {
+          new_values.push_back(values[i]);
+          new_accuracy.push_back(accuracy[i]);
+        }
     }
-  /*else
-  {
-    // TODO, what happens if a sensor isnt working? does it still give a value??
-  }*/
- return 0.0;
-}
-
-//make another sensorFusonAvg function that does weighted average based on accuracy values
-float Sensors::sensorFusionWeightedAverage(std::vector<float> values, std::vector<float> accuracy)
-{
- 
-  values[0] = values[0] * accuracy[0];
-  values[1] = values[1] * accuracy[1];
-  values[2] = values[2] * accuracy[2];
-
-  float sum = values[0] + values[1] + values[2];
-  float sumAccuracy = accuracy[0] + accuracy[1] + accuracy[2];
-
-  float weightedAverage = sum / sumAccuracy;
-
-  return weightedAverage;
+  
+  if (new_values.size() == 3)
+    {
+      std::sort(new_values.begin(), new_values.end()); //if there are 3 values, then return the median value, this will ignore outliers
+      return new_values[1]; //get middle value
+    }
+  else if (new_values.size() == 2)
+    {
+      //if only 2 are working, want to return the value with best accuracy
+      // note for linear accuracy (0-3), the higher the value the better
+      //for orientation accuracy (degrees), the lower the value the better
+      if (accuracyIsDegrees == true) //use accuracyIsDegrees to determine type of accuracy (true if in degrees, false if linear (0-3))
+        {
+          return new_accuracy[0] < new_accuracy[1] ? new_values[0] : new_values[1]; //if in degrees want lowest accuracy
+        }    
+      else //if accuracy is linear (0-3) want highest accuracy
+        {
+          return new_accuracy[0] > new_accuracy[1] ? new_values[0] : new_values[1]; 
+        }
+    }
+    else if (new_values.size() == 1)
+    {
+      return new_values[0]; //if only 1 sensor is working, then return that value
+    }
+  else
+    {
+      return -1.0; //if no sensors are working, return -1
+    }
 }
