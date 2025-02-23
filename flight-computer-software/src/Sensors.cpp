@@ -285,6 +285,8 @@ float Sensors::sensorFusion(std::vector<float> values, std::vector<float> accura
     }
   else
     {
-      return -1.0; //if no sensors are working, return -1
+      //add here error if no sensors are working
+      Serial.println("No sensors are working.");
+      return -1.0;
     }
 }
