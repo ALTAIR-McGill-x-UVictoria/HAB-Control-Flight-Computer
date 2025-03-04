@@ -86,10 +86,10 @@ bool Sensors::begin()
 
 void Sensors::enableReports(BNO080 imu, uint16_t interval)
 {
-  imu.enableRotationVector(interval);
-  imu.enableLinearAccelerometer(interval);
-  imu.enableGyro(interval);
-  imu.enableAccelerometer(interval);
+  imu.enableLinearAccelerometer(interval);  // m/s^2 no gravity
+  imu.enableRotationVector(interval);  // quat
+  imu.enableGyro(interval);  // rad/s
+  
 }
 
 float Sensors::getTemperature()
@@ -111,10 +111,11 @@ float Sensors::getAltitude()
 
 void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az, float &linearaccuracy)
 {
+  uint16_t interval = 10;
   if (imu.hasReset())
   {
     //Serial.println("IMU has reset. Reason: " + imu.resetReason());
-    enableReports(imu);
+    enableReports(imu, interval);
   }
   if (imu.dataAvailable())
   {
@@ -129,13 +130,32 @@ void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az,
   }
 }
 
-void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees)
+//Output in form x, y, z, in radians per second
+void Sensors::getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity)
 {
-  if (imu.hasReset())
-  {
+  uint16_t interval = 10;
+  //if (imu.hasReset())
+  //{
     //Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
-    enableReports(imu);
+   // enableReports(imu, interval);
+  //}
+  if (imu.dataAvailable())
+  {
+    xangularvelocity = imu.getGyroX(); //get GyroX, in radians per second
+    yangularvelocity = imu.getGyroY();
+    zangularvelocity = imu.getGyroZ();
   }
+}
+
+void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees)
+{ 
+  uint16_t interval = 10;
+  //if (imu.hasReset())
+  //{
+    //Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
+  //  enableReports(imu, interval);
+  //}
+  
   if (imu.dataAvailable())
   {
     accuracyDegrees = imu.getQuatRadianAccuracy() * 180.0 / PI;
@@ -151,21 +171,7 @@ void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, 
   }
 }
 
-//Output in form x, y, z, in radians per second
-void Sensors::getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity)
-{
-  if (imu.hasReset())
-  {
-    //Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
-    enableReports(imu);
-  }
-  if (imu.dataAvailable())
-  {
-    xangularvelocity = imu.getGyroX(); //get GyroX, in radians per second
-    yangularvelocity = imu.getGyroY();
-    zangularvelocity = imu.getGyroZ();
-  }
-}
+
 
 void Sensors::getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz)
 {

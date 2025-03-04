@@ -91,6 +91,15 @@ public:
   //params: float &yaw, float &pitch, float &roll, float &accuracyDegrees
   void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
 
+  //If 3 sensors are working, get the median value, filters out outliers. 
+  //If only 2 sensors are working, return the value with best accuracy
+  //If only one sensor is working, return that value
+  //IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
+  //Used inside of getFusedLinearAcceleration and getFusedOrientation
+  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
+  float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
+
+
   //The temperature probe sensor
   Adafruit_MAX31865 temperatureProbe;
   
@@ -108,12 +117,6 @@ public:
   float px, py, pz;
 
 
-private:
-  //If 3 sensors are working, get the median value, filters out outliers. 
-  //If only 2 sensors are working, return the value with best accuracy
-  //If only one sensor is working, return that value
-  //IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
-  //Used inside of getFusedLinearAcceleration and getFusedOrientation
-  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
-  float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
+
+  
 };

@@ -15,7 +15,8 @@ void setup() {
     Serial.println("Retrying sensor initialization.");
     delay(10);
   }
-  uint16_t interval = 10;
+  //uint16_t interval = 10;
+  uint16_t interval = 5;
   sensors.enableReports(sensors.imu1, interval);
   sensors.enableReports(sensors.imu2, interval);
   sensors.enableReports(sensors.imu3, interval);
@@ -23,8 +24,6 @@ void setup() {
 }
 
 void loop() {
-
-  //Serial.println("hello");
   // Get temperature
   float temperature = sensors.getTemperature();
 
@@ -34,18 +33,16 @@ void loop() {
   // Get altitude
   float altitude = sensors.getAltitude();
 
-
   //Serial.println("hello2");
   // Get acceleration for IMU 1
-  float ax1, ay1, az1, linearaccuracy1;
-  sensors.getLinearAcceleration(sensors.imu1, ax1, ay1, az1, linearaccuracy1);
+  //float ax1, ay1, az1, linearaccuracy1;
+  //sensors.getLinearAcceleration(sensors.imu1, ax1, ay1, az1, linearaccuracy1);
   // Get acceleration for IMU 2
-  float ax2, ay2, az2, linearaccuracy2;
-  sensors.getLinearAcceleration(sensors.imu2, ax2, ay2, az2, linearaccuracy2);
+  //float ax2, ay2, az2, linearaccuracy2;
+  //sensors.getLinearAcceleration(sensors.imu2, ax2, ay2, az2, linearaccuracy2);
   // Get acceleration for IMU 3
-  float ax3, ay3, az3, linearaccuracy3;
-  sensors.getLinearAcceleration(sensors.imu3, ax3, ay3, az3, linearaccuracy3);
-
+  //float ax3, ay3, az3, linearaccuracy3;
+  //sensors.getLinearAcceleration(sensors.imu3, ax3, ay3, az3, linearaccuracy3);
 
   //Serial.println("hello3");
   // Get orientation for IMU 1
@@ -85,23 +82,21 @@ void loop() {
   sensors.getAngularVelocity(sensors.imu3, xangularvelocity3, yangularvelocity3, zangularvelocity3);
 
 
-
-
-  float xvelocity1, yvelocity1, zvelocity1;
-  float xvelocity2, yvelocity2, zvelocity2;
-  float xvelocity3, yvelocity3, zvelocity3;
-  sensors.getRelativeVelocity(sensors.imu1, xvelocity1, yvelocity1, zvelocity1);
-  sensors.getRelativeVelocity(sensors.imu2, xvelocity2, yvelocity2, zvelocity2);
-  sensors.getRelativeVelocity(sensors.imu3, xvelocity3, yvelocity3, zvelocity3);
+  //float xvelocity1, yvelocity1, zvelocity1;
+  //float xvelocity2, yvelocity2, zvelocity2;
+  //float xvelocity3, yvelocity3, zvelocity3;
+  //sensors.getRelativeVelocity(sensors.imu1, xvelocity1, yvelocity1, zvelocity1);
+  //sensors.getRelativeVelocity(sensors.imu2, xvelocity2, yvelocity2, zvelocity2);
+  //sensors.getRelativeVelocity(sensors.imu3, xvelocity3, yvelocity3, zvelocity3);
 
   // Print data
   Serial.println("Temperature: " + String(temperature) + " C");
   Serial.println("Pressure: " + String(pressure) + " hPa");
   Serial.println("Altitude: " + String(altitude) + " m");
   
-  Serial.println("Acceleration (IMU 1): X: " + String(ax1) + " Y: " + String(ay1) + " Z: " + String(az1) + " Accuracy: " + String(linearaccuracy1));
-  Serial.println("Acceleration (IMU 2): X: " + String(ax2) + " Y: " + String(ay2) + " Z: " + String(az2) + " Accuracy: " + String(linearaccuracy2));
-  Serial.println("Acceleration (IMU 3): X: " + String(ax3) + " Y: " + String(ay3) + " Z: " + String(az3) + " Accuracy: " + String(linearaccuracy3));
+  //Serial.println("Acceleration (IMU 1): X: " + String(ax1) + " Y: " + String(ay1) + " Z: " + String(az1) + " Accuracy: " + String(linearaccuracy1));
+  //Serial.println("Acceleration (IMU 2): X: " + String(ax2) + " Y: " + String(ay2) + " Z: " + String(az2) + " Accuracy: " + String(linearaccuracy2));
+  //Serial.println("Acceleration (IMU 3): X: " + String(ax3) + " Y: " + String(ay3) + " Z: " + String(az3) + " Accuracy: " + String(linearaccuracy3));
   
   Serial.println("Orientation (IMU 1): Yaw: " + String(yaw1) + " Pitch: " + String(pitch1) + " Roll: " + String(roll1) + " Accuracy: " + String(accuracy1));
   Serial.println("Orientation (IMU 2): Yaw: " + String(yaw2) + " Pitch: " + String(pitch2) + " Roll: " + String(roll2) + " Accuracy: " + String(accuracy2));
@@ -117,9 +112,9 @@ void loop() {
   Serial.println("Angular velocity IMU2: X: " + String(xangularvelocity2) + " Y: " + String(yangularvelocity2) + " Z: " + String(zangularvelocity2));
   Serial.println("Angular velocity IMU3: X: " + String(xangularvelocity3) + " Y: " + String(yangularvelocity3) + " Z: " + String(zangularvelocity3));
 
-  Serial.println("Relative Velocity IMU1: X: " + String(xvelocity1) + " Y: " + String(yvelocity1) + " Z: " + String(zvelocity1));
-  Serial.println("Relative Velocity IMU2: X: " + String(xvelocity2) + " Y: " + String(yvelocity2) + " Z: " + String(zvelocity2));
-  Serial.println("Relative Velocity IMU3: X: " + String(xvelocity3) + " Y: " + String(yvelocity3) + " Z: " + String(zvelocity3));
+  //Serial.println("Relative Velocity IMU1: X: " + String(xvelocity1) + " Y: " + String(yvelocity1) + " Z: " + String(zvelocity1));
+  //Serial.println("Relative Velocity IMU2: X: " + String(xvelocity2) + " Y: " + String(yvelocity2) + " Z: " + String(zvelocity2));
+  //Serial.println("Relative Velocity IMU3: X: " + String(xvelocity3) + " Y: " + String(yvelocity3) + " Z: " + String(zvelocity3));
 
 
   Serial.println("--------------------------");
@@ -132,5 +127,5 @@ void loop() {
   // sensors.setRelativePosition(0.0, 0.0, 0.0);
   // Serial.println("Set new relative position to (0.0, 0.0, 0.0)");
 
-  delay(10);
+  delay(100);
 }
