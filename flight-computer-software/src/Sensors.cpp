@@ -31,56 +31,21 @@ Sensors::Sensors()
       lastVelocityUpdateTime(0),
       lastPositionUpdateTime(0),
       vx(0), vy(0), vz(0),
-      px(0), py(0), pz(0)
+      px(0), py(0), pz(0),
+      previousAltitude(0)
 {
 }
 
-bool Sensors::begin()
+SensorStatus Sensors::begin()
 {
   Wire1.begin();
   Wire2.begin();
-  int status = true;
-
-  if (!imu1.begin(0x4A, Wire1, -1))
-  {
-    Serial.println("Failed to initialize IMU 1.");
-    status = false;
-  }
-  else
-    Serial.println("Successfully initialized IMU 1.");
-
-  if (!imu2.begin(0x4B, Wire1, -1))
-  {
-    Serial.println("Failed to initialize IMU 2.");
-    status = false;
-  }
-  else
-    Serial.println("Successfully initialized IMU 2.");
-
-  if (!imu3.begin(0x4A, Wire2, -1))
-  {
-    Serial.println("Failed to initialize IMU 3.");
-    status = false;
-  }
-  else
-    Serial.println("Successfully initialized IMU 3.");
-
-  if (!altimeter.begin())
-  {
-    Serial.println("Failed to initialize Altimeter.");
-    status = false;
-  }
-  else
-    Serial.println("Successfully initialized Altimeter.");
-
-  if (!temperatureProbe.begin(MAX31865_3WIRE))
-  {
-    Serial.println("Failed to initialize Temperature Probe.");
-    status = false;
-  }
-  else
-    Serial.println("Successfully initialized Temperature Probe.");
-
+  SensorStatus status = {false, false, false, false, false};
+  status.imu1 = imu1.begin(0x4A, Wire1, -1);
+  status.imu2 = imu2.begin(0x4B, Wire1, -1);
+  status.imu3 = imu3.begin(0x4A, Wire2, -1);
+  status.pressure = altimeter.begin();
+  status.temperature = temperatureProbe.begin(MAX31865_3WIRE);
   return status;
 }
 
@@ -263,22 +228,22 @@ void Sensors::getFusedOrientation(float &yaw, float &pitch, float &roll, float &
 //use bool accuracyDegrees to determine type of accuracy (linear or orientation)
 float Sensors::sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees)
 {
-  //want to ignore any values that have a negative accuracy
+    //want to ignore any values that have a negative accuracy
   //check if there is a negative value in the accuracy vector
   //want to check if there is a negative value in accuracy vector, if there is, remove corresponding value from values vector
   std::vector<float> new_values;  //create new vectors to store values and accuracy that are not negative
   std::vector<float> new_accuracy;
   int valuesize = values.size();
-  for (int i = 0; i < valuesize; i++)
+    for (int i = 0; i < valuesize; i++)
     {
-      if (accuracy[i] >= 0) //if accuracy is positive or 0
+        if (accuracy[i] >= 0) //if accuracy is positive or 0
         {
           new_values.push_back(values[i]);
-          new_accuracy.push_back(accuracy[i]);
+            new_accuracy.push_back(accuracy[i]);
         }
     }
-  
-  if (new_values.size() == 3)
+    
+    if (new_values.size() == 3)
     {
       std::sort(new_values.begin(), new_values.end()); //if there are 3 values, then return the median value, this will ignore outliers
       return new_values[1]; //get middle value
@@ -304,7 +269,21 @@ float Sensors::sensorFusion(std::vector<float> values, std::vector<float> accura
   else
     {
       //add here error if no sensors are working
-      Serial.println("No sensors are working.");
-      return -1.0;
-    }
+        Serial.println("No sensors are working.");
+        return -1.0;
+        }
+}
+
+bool Sensors::isAscending() {
+    float currentAltitude = getAltitude();
+    bool ascending = (currentAltitude - previousAltitude > 0.1); // 10cm threshold
+    previousAltitude = currentAltitude;
+    return ascending;
+}
+
+bool Sensors::isDescending() {
+    float currentAltitude = getAltitude();
+    bool descending = (previousAltitude - currentAltitude > 0.1); // 10cm threshold
+    previousAltitude = currentAltitude;
+    return descending;
 }

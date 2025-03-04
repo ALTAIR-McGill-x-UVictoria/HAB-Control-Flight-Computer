@@ -17,13 +17,13 @@ enum SystemState {
     INITIALIZATION,
     FAULT,
     CALIBRATION,
-    TELEMETRY_HOLD,
-    DATA_COLLECTION_HOLD,
     READY,
     ASCENT,
     STABILIZATION,
     DESCENT,
-    TERMINATION
+    TERMINATION,
+    TELEMETRY_HOLD,
+    DATA_COLLECTION_HOLD
 };
 
 // Enum for calibration state subtypes
@@ -33,13 +33,6 @@ enum CalibrationSubState {
     CALIBRATION_FAULT
 };
 
-// Enum for sensor status
-enum SensorStatus {
-    SENSOR_OK,
-    SENSOR_WARNING,
-    SENSOR_FAULT
-};
-
 class StateMachine {
 public:
     StateMachine();
@@ -47,70 +40,87 @@ public:
     void run();
 
 private:
-    // Member variables to store collected data
-    float temperature;
-    float pressure;
-    float altitude;
+    // Sensor data
+    float temperature, pressure, altitude;
     float ax, ay, az, accuracy;
     float yaw, pitch, roll, accuracyDegrees;
-
-    // State management
+    
+    // State variables
     SystemState currentState;
-    SystemState previousState;
     CalibrationSubState calibrationSubState;
-
-    // Sensors and threads
+    
+    // Hardware management
     Sensors sensors;
-    int calibrationThreadId;
-    int telemetryThreadId;
-    int dataCollectionThreadId;
+    SensorStatus sensorInitStatus;
+    int telemetryThreadId, dataCollectionThreadId;
+    
+    // Sensor status tracking
+    bool imu1Working, imu2Working, imu3Working;
+    int workingImuCount;
 
-    // Device status
-    bool deviceStatus[5]; // Array to track device statuses
+    // Core functionality
+    bool initializeHardware();
+    void transitionToState(SystemState newState);
+    void handleCurrentState();
+    void logSystemEvent(const String& event);
+    
+    // State handlers
+    void handleInitializationState();
+    void handleCalibrationState();
+    void handleReadyState();
+    void handleAscentState();
+    void handleStabilizationState();
+    void handleDescentState();
+    void handleTerminationState();
+    void handleFaultState();
 
-    // Internal methods
-    void saveStateToEEPROM();
-    void loadStateFromEEPROM();
-
-    // Initialization methods
-    bool initializeSensors();
-    bool initializeBattery();
-    bool initializeSD();
-    bool initializeTelemetry();
-
-    // Calibration methods
+    // Calibration handling
     void runCalibration();
     void handleCalibrationWarning();
     void handleCalibrationFault();
 
-    // State transition methods
-    void transitionToState(SystemState newState);
-
-    // Logging methods
-    void logSystemEvent(const String& event);
-    void writeToSD(const String& data);
-
-    // Flight detection methods
-    bool isAscending();
-    bool isDescending();
+    // EEPROM functions
+    void loadStateFromEEPROM();
+    void saveStateToEEPROM();
+    
+    // Hardware initialization
+    bool initializeSensors();
+    bool initializeBattery();
+    bool initializeSD();
+    bool initializeTelemetry();
+    
+    // Flight monitoring
     bool hasReachedTargetAltitude();
 
     // Thread methods
-    static void calibrationThreadMethod(void* arg);
     static void telemetryThreadMethod(void* arg);
     static void dataCollectionThreadMethod(void* arg);
-
-    // Telemetry and data collection
     void processTelemetry();
     void collectData();
-
+    void checkSensorsStatus();
+    
     // Utility methods
     void activationBeepSound();
     void faultBeepSound();
     void updateStatusLog();
+    void writeToSD(const String& data);
+    
+    // Sensor status methods
+    bool isTemperatureSensorWorking();
+    bool isPressureSensorWorking();
+    bool areEnoughImusWorking();
+    int getInitializedImuCount();
 
-    // Sensor status checking
-    SensorStatus checkSensorStatus(int sensorIndex);
+    // Mutex locks for thread safety
+    Threads::Mutex sensorDataMutex;    // Protects sensor readings
+    Threads::Mutex loggingMutex;       // Protects SD card operations
+
+    // Add thread control flags
+    bool threadsShouldRun;  // Flag to control thread execution
+    
+    // Add thread control methods
+    void startThreads();
+    void stopThreads();
 };
 
 #endif // STATE_MACHINE_H

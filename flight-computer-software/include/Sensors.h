@@ -28,6 +28,15 @@ library to provide the following data :
 // The 'nominal' 0-degrees-C resistance of the sensor: 100.0 for PT100
 #define RNOMINAL 100.0
 
+// Simple data-only struct to hold initialization status
+struct SensorStatus {
+  bool temperature;
+  bool pressure;
+  bool imu1;
+  bool imu2;
+  bool imu3;
+};
+
 class Sensors
 {
 public:
@@ -35,7 +44,8 @@ public:
   Sensors();
 
   //Initializes the sensors
-  bool begin();
+  // Modified to return initialization status
+  SensorStatus begin();
   
   //Enables reports for the IMU
   //params: BNO080 imu, uint16_t interval
@@ -91,6 +101,10 @@ public:
   //params: float &yaw, float &pitch, float &roll, float &accuracyDegrees
   void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
 
+  // Add new methods for altitude change detection
+  bool isAscending();    // Checks if altitude is increasing
+  bool isDescending();   // Checks if altitude is decreasing
+
   //The temperature probe sensor
   Adafruit_MAX31865 temperatureProbe;
   
@@ -107,7 +121,6 @@ public:
   float vx, vy, vz;
   float px, py, pz;
 
-
 private:
   //If 3 sensors are working, get the median value, filters out outliers. 
   //If only 2 sensors are working, return the value with best accuracy
@@ -116,4 +129,6 @@ private:
   //Used inside of getFusedLinearAcceleration and getFusedOrientation
   //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
   float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
+
+  float previousAltitude;  // Added to track altitude changes
 };
