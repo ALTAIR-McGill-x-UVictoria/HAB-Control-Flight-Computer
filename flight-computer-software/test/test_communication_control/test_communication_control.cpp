@@ -18,6 +18,7 @@ void setup() {
 }
 
 bool performHandshake() {
+    Serial.println("Initializing handshake...");
     const uint8_t handshakeToken = 0xAB;
     uint8_t response = 0;
 
@@ -29,6 +30,7 @@ bool performHandshake() {
     
     // Read response from slave
     response = SPI.transfer(0x00);
+    Serial.print("Received response: " + String(response));
     
     // Deassert Chip Select
     digitalWrite(cs, HIGH);
