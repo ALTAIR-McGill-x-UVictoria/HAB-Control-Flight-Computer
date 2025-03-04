@@ -79,6 +79,10 @@ public:
   //params: float px, float py, float pz
   void setRelativePosition(float px, float py, float pz);
 
+  //Output in form x, y, z, in radians per second
+  //params: BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity
+  void getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity);
+
   //Gets the fused linear acceleration, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
   //params: float &ax, float &ay, float &az, float &linearaccuracy
   void getFusedLinearAcceleration(float &ax, float &ay, float &az, float &linearaccuracy);
@@ -86,14 +90,6 @@ public:
   //Gets the fused orientation, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
   //params: float &yaw, float &pitch, float &roll, float &accuracyDegrees
   void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
-
-  //If 3 sensors are working, get the median value, filters out outliers. 
-  //If only 2 sensors are working, return the value with best accuracy
-  //If only one sensor is working, return that value
-  //IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
-  //Used inside of getFusedLinearAcceleration and getFusedOrientation
-  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
-  float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
 
   //The temperature probe sensor
   Adafruit_MAX31865 temperatureProbe;
@@ -110,4 +106,14 @@ public:
   unsigned long lastPositionUpdateTime;
   float vx, vy, vz;
   float px, py, pz;
+
+
+private:
+  //If 3 sensors are working, get the median value, filters out outliers. 
+  //If only 2 sensors are working, return the value with best accuracy
+  //If only one sensor is working, return that value
+  //IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
+  //Used inside of getFusedLinearAcceleration and getFusedOrientation
+  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
+  float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
 };

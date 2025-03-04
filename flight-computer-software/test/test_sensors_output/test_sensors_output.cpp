@@ -76,6 +76,24 @@ void loop() {
   float px1, py1, pz1;
   sensors.getRelativePosition(sensors.imu1, px1, py1, pz1);
 
+  //get angular velocity for imu1
+  float xangularvelocity1, yangularvelocity1, zangularvelocity1;
+  float xangularvelocity2, yangularvelocity2, zangularvelocity2;
+  float xangularvelocity3, yangularvelocity3, zangularvelocity3;
+  sensors.getAngularVelocity(sensors.imu1, xangularvelocity1, yangularvelocity1, zangularvelocity1);
+  sensors.getAngularVelocity(sensors.imu2, xangularvelocity2, yangularvelocity2, zangularvelocity2);
+  sensors.getAngularVelocity(sensors.imu3, xangularvelocity3, yangularvelocity3, zangularvelocity3);
+
+
+
+
+  float xvelocity1, yvelocity1, zvelocity1;
+  float xvelocity2, yvelocity2, zvelocity2;
+  float xvelocity3, yvelocity3, zvelocity3;
+  sensors.getRelativeVelocity(sensors.imu1, xvelocity1, yvelocity1, zvelocity1);
+  sensors.getRelativeVelocity(sensors.imu2, xvelocity2, yvelocity2, zvelocity2);
+  sensors.getRelativeVelocity(sensors.imu3, xvelocity3, yvelocity3, zvelocity3);
+
   // Print data
   Serial.println("Temperature: " + String(temperature) + " C");
   Serial.println("Pressure: " + String(pressure) + " hPa");
@@ -95,6 +113,15 @@ void loop() {
   Serial.println("Relative Velocity: Vx: " + String(vx1) + " Vy: " + String(vy1) + " Vz: " + String(vz1));
   Serial.println("Relative Position: Px: " + String(px1) + " Py: " + String(py1) + " Pz: " + String(pz1));
 
+  Serial.println("Angular velocity IMU1: X: " + String(xangularvelocity1) + " Y: " + String(yangularvelocity1) + " Z: " + String(zangularvelocity1));
+  Serial.println("Angular velocity IMU2: X: " + String(xangularvelocity2) + " Y: " + String(yangularvelocity2) + " Z: " + String(zangularvelocity2));
+  Serial.println("Angular velocity IMU3: X: " + String(xangularvelocity3) + " Y: " + String(yangularvelocity3) + " Z: " + String(zangularvelocity3));
+
+  Serial.println("Relative Velocity IMU1: X: " + String(xvelocity1) + " Y: " + String(yvelocity1) + " Z: " + String(zvelocity1));
+  Serial.println("Relative Velocity IMU2: X: " + String(xvelocity2) + " Y: " + String(yvelocity2) + " Z: " + String(zvelocity2));
+  Serial.println("Relative Velocity IMU3: X: " + String(xvelocity3) + " Y: " + String(yvelocity3) + " Z: " + String(zvelocity3));
+
+
   Serial.println("--------------------------");
 
   // Set new relative velocity
@@ -105,5 +132,5 @@ void loop() {
   // sensors.setRelativePosition(0.0, 0.0, 0.0);
   // Serial.println("Set new relative position to (0.0, 0.0, 0.0)");
 
-  delay(100);
+  delay(10);
 }

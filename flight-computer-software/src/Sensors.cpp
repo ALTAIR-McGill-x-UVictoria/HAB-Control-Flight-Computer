@@ -88,6 +88,8 @@ void Sensors::enableReports(BNO080 imu, uint16_t interval)
 {
   imu.enableRotationVector(interval);
   imu.enableLinearAccelerometer(interval);
+  imu.enableGyro(interval);
+  imu.enableAccelerometer(interval);
 }
 
 float Sensors::getTemperature()
@@ -146,6 +148,22 @@ void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, 
   else // if data is not available, make the accuracy negative
   {
     accuracyDegrees = -1.0; //negative value means accuracy is not available
+  }
+}
+
+//Output in form x, y, z, in radians per second
+void Sensors::getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity)
+{
+  if (imu.hasReset())
+  {
+    //Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
+    enableReports(imu);
+  }
+  if (imu.dataAvailable())
+  {
+    xangularvelocity = imu.getGyroX(); //get GyroX, in radians per second
+    yangularvelocity = imu.getGyroY();
+    zangularvelocity = imu.getGyroZ();
   }
 }
 
