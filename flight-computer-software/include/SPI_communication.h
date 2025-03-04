@@ -23,10 +23,10 @@ struct TelemetryPacket {
 };
 
 // SPI Communication Pins
-const int CS = 0;     // Chip Select
-const int MISO = 1;   // Master In Slave Out
-const int MOSI = 26;  // Master Out Slave In
-const int SCK = 27;   // Serial Clock
+const int cs = 0;     // Chip Select
+const int miso = 1;   // Master In Slave Out
+const int mosi = 26;  // Master Out Slave In
+const int sck = 27;   // Serial Clock
 
 // Maximum allowed status message length
 const uint16_t MAX_STATUS_MSG_LENGTH = 64;
