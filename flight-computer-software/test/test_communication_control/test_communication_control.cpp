@@ -34,6 +34,9 @@ bool performHandshake() {
     digitalWrite(cs, HIGH);
 
     // Check if slave responded correctly
+    if (response == COMM_ACK_SUCCESS) {
+        Serial.print("Handshake successful, communication established.");
+    }
     return (response == COMM_ACK_SUCCESS);
 }
 

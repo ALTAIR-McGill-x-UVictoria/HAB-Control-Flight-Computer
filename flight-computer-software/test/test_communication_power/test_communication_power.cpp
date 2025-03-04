@@ -8,17 +8,19 @@ TelemetryPacket receivedPacket;
 void processReceivedTelemetryPacket(const TelemetryPacket& packet) {
     // Implementation for processing received telemetry data
     // Print out received data in console
+    delay(1000);
     Serial.println("Received Telemetry Data:");
-    Serial.print("Timestamp: " + String(packet.timestamp) + " ms");
-    Serial.print("Pressure: " + String(packet.pressure) + " Pa");
-    Serial.print("Temperature: " + String(packet.temperature) + " C");
-    // Print out other telemetry data fields...
-    // (Add similar print statements for accelerations, velocities, battery voltage, etc.)
-    Serial.print("Latitude: " + String(packet.latitude));
-    Serial.print("Longitude: " + String(packet.longitude));
-    Serial.print("Status Message: ");
-    Serial.println(String(reinterpret_cast<char*>(packet.statusMsg)));
-    Serial.println();
+    // Serial.println("Received Telemetry Data:");
+    // Serial.print("Timestamp: " + String(packet.timestamp) + " ms");
+    // Serial.print("Pressure: " + String(packet.pressure) + " Pa");
+    // Serial.print("Temperature: " + String(packet.temperature) + " C");
+    // // Print out other telemetry data fields...
+    // // (Add similar print statements for accelerations, velocities, battery voltage, etc.)
+    // Serial.print("Latitude: " + String(packet.latitude));
+    // Serial.print("Longitude: " + String(packet.longitude));
+    // Serial.print("Status Message: ");
+    // Serial.println(String(reinterpret_cast<char*>(packet.statusMsg)));
+    // Serial.println();
 }
 
 // Slave setup function
