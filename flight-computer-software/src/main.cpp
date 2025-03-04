@@ -1,14 +1,8 @@
-/*
-Sources:
-  Adafruit_MAX31865 Arduino Library Example
-  MS5607 Arduino Library Example
-  SparkFun_BNO080_Cortex_Based_IMU Library Example
-  ArduTFLite Library Example
-*/
-#include <Arduino.h>
-#include "Sensors.h"
+#include "StateMachine.h"
 
 const int led = 13;
+
+StateMachine stateMachine;
 
 void setup() {
   // put your setup code here, to run once:
@@ -16,6 +10,7 @@ void setup() {
   pinMode(led, OUTPUT);
   Serial.begin(115200);  // start serial for output
   while (!Serial) delay(10);
+  stateMachine.begin();
 
   
 }
@@ -29,7 +24,7 @@ void loop() {
   Serial.println("\n--------------------------");
 
   digitalWrite(led, LOW);
+  stateMachine.run();
   delay(100);
  
 }
-
