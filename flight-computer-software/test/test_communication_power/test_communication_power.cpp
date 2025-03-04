@@ -33,6 +33,7 @@ void setup() {
 
     // Initialize SPI in slave mode
     SPI.begin();
+    delay(5000);  // Delay to allow master to initialize
 }
 
 void handleHandshake() {
