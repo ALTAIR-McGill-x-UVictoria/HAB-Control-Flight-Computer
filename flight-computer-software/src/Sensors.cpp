@@ -31,7 +31,8 @@ Sensors::Sensors()
       lastVelocityUpdateTime(0),
       lastPositionUpdateTime(0),
       vx(0), vy(0), vz(0),
-      px(0), py(0), pz(0)
+      px(0), py(0), pz(0), 
+      lastYaw(0), lastPitch(0), lastRoll(0)
 {
 }
 
@@ -88,8 +89,7 @@ void Sensors::enableReports(BNO080 imu, uint16_t interval)
 {
   imu.enableLinearAccelerometer(interval);  // m/s^2 no gravity
   imu.enableRotationVector(interval);  // quat
-  imu.enableGyro(interval);  // rad/s
-  
+  //imu.enableGyro(interval);  // rad/s
 }
 
 float Sensors::getTemperature()
@@ -111,7 +111,7 @@ float Sensors::getAltitude()
 
 void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az, float &linearaccuracy)
 {
-  uint16_t interval = 10;
+  uint16_t interval = 5;
   if (imu.hasReset())
   {
     //Serial.println("IMU has reset. Reason: " + imu.resetReason());
@@ -130,31 +130,63 @@ void Sensors::getLinearAcceleration(BNO080 imu, float &ax, float &ay, float &az,
   }
 }
 
+float Sensors::calculateAngularVelocity(float currentAngle, float previousAngle, float deltaTime) {
+
+  float deltaAngle = currentAngle - previousAngle;
+
+  // Handle angle wrap-around (e.g., -179 to 179 degrees)
+  if (deltaAngle > 180.0f) {
+    deltaAngle -= 360.0f;
+  } else if (deltaAngle < -180.0f) {
+    deltaAngle += 360.0f;
+  }
+
+  return deltaAngle / deltaTime;
+}
+
+
 //Output in form x, y, z, in radians per second
 void Sensors::getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity)
 {
-  uint16_t interval = 10;
-  //if (imu.hasReset())
-  //{
-    //Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
-   // enableReports(imu, interval);
-  //}
-  if (imu.dataAvailable())
-  {
-    xangularvelocity = imu.getGyroX(); //get GyroX, in radians per second
-    yangularvelocity = imu.getGyroY();
-    zangularvelocity = imu.getGyroZ();
-  }
+  uint16_t interval = 5;
+
+    if (imu.hasReset()) {
+      // Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
+      enableReports(imu, interval); // Call the enableReports function
+    }
+
+    if (imu.dataAvailable()) {
+      unsigned long currentTime = millis();
+      if (lastVelocityUpdateTime != 0) { // Ensure dt is calculated only after the first reading
+        float dt = (currentTime - lastVelocityUpdateTime) / 1000.0; // Convert to seconds
+
+        float yaw, pitch, roll, accuracyDegrees;
+        getOrientation(imu, yaw, pitch, roll, accuracyDegrees);
+
+        // Calculate angular velocity, handling potential wrap-around
+        xangularvelocity = calculateAngularVelocity(yaw, lastYaw, dt);
+        yangularvelocity = calculateAngularVelocity(pitch, lastPitch, dt);
+        zangularvelocity = calculateAngularVelocity(roll, lastRoll, dt);
+
+        lastYaw = yaw;
+        lastPitch = pitch;
+        lastRoll = roll;
+      }
+      lastVelocityUpdateTime = currentTime;
+    }
 }
+
+
+
 
 void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees)
 { 
-  uint16_t interval = 10;
-  //if (imu.hasReset())
-  //{
+  uint16_t interval = 5;
+  if (imu.hasReset())
+  {
     //Serial.println("IMU has reset. Reason: " + String(imu.resetReason()));
-  //  enableReports(imu, interval);
-  //}
+    enableReports(imu, interval);
+  }
   
   if (imu.dataAvailable())
   {
@@ -170,7 +202,6 @@ void Sensors::getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, 
     accuracyDegrees = -1.0; //negative value means accuracy is not available
   }
 }
-
 
 
 void Sensors::getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz)

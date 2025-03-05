@@ -44,7 +44,7 @@ void loop() {
   //float ax3, ay3, az3, linearaccuracy3;
   //sensors.getLinearAcceleration(sensors.imu3, ax3, ay3, az3, linearaccuracy3);
 
-  //Serial.println("hello3");
+  Serial.println("hello3");
   // Get orientation for IMU 1
   float yaw1, pitch1, roll1, accuracy1;
   sensors.getOrientation(sensors.imu1, yaw1, pitch1, roll1, accuracy1);
@@ -77,11 +77,15 @@ void loop() {
   float xangularvelocity1, yangularvelocity1, zangularvelocity1;
   float xangularvelocity2, yangularvelocity2, zangularvelocity2;
   float xangularvelocity3, yangularvelocity3, zangularvelocity3;
+  
+  Serial.println("hello6");
+  
   sensors.getAngularVelocity(sensors.imu1, xangularvelocity1, yangularvelocity1, zangularvelocity1);
   sensors.getAngularVelocity(sensors.imu2, xangularvelocity2, yangularvelocity2, zangularvelocity2);
   sensors.getAngularVelocity(sensors.imu3, xangularvelocity3, yangularvelocity3, zangularvelocity3);
 
 
+  Serial.println("hello7");
   //float xvelocity1, yvelocity1, zvelocity1;
   //float xvelocity2, yvelocity2, zvelocity2;
   //float xvelocity3, yvelocity3, zvelocity3;
@@ -101,7 +105,8 @@ void loop() {
   Serial.println("Orientation (IMU 1): Yaw: " + String(yaw1) + " Pitch: " + String(pitch1) + " Roll: " + String(roll1) + " Accuracy: " + String(accuracy1));
   Serial.println("Orientation (IMU 2): Yaw: " + String(yaw2) + " Pitch: " + String(pitch2) + " Roll: " + String(roll2) + " Accuracy: " + String(accuracy2));
   Serial.println("Orientation (IMU 3): Yaw: " + String(yaw3) + " Pitch: " + String(pitch3) + " Roll: " + String(roll3) + " Accuracy: " + String(accuracy3));
-  
+  //Serial.printf("Median Acceleration: X: %f Y: %f Z: %f\n", yaw1, pitch1, roll1);
+
   Serial.println("Median Acceleration: X: " + String(ax) + " Y: " + String(ay) + " Z: " + String(az));
   Serial.println("Median Orientation: Yaw: " + String(yaw) + " Pitch: " + String(pitch) + " Roll: " + String(roll));
   
@@ -127,5 +132,5 @@ void loop() {
   // sensors.setRelativePosition(0.0, 0.0, 0.0);
   // Serial.println("Set new relative position to (0.0, 0.0, 0.0)");
 
-  delay(100);
+  delay(10);
 }

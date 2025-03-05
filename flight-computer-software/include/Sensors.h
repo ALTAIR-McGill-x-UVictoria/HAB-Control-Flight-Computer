@@ -79,6 +79,10 @@ public:
   //params: float px, float py, float pz
   void setRelativePosition(float px, float py, float pz);
 
+  //helper function used to do the calculations to convert orientation to angular velocity
+  //params: float currentAngle, float previousAngle, float deltaTime
+  float calculateAngularVelocity(float currentAngle, float previousAngle, float deltaTime);
+
   //Output in form x, y, z, in radians per second
   //params: BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity
   void getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity);
@@ -100,6 +104,7 @@ public:
   float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
 
 
+
   //The temperature probe sensor
   Adafruit_MAX31865 temperatureProbe;
   
@@ -111,12 +116,21 @@ public:
   BNO080 imu2;
   BNO080 imu3;
 
+  //unsigned long lastVelocityUpdateTime;
+  
+  //float lastYaw = 0.0;
+  //float lastPitch = 0.0;
+  //float lastRoll = 0.0;
+  
   unsigned long lastVelocityUpdateTime;
   unsigned long lastPositionUpdateTime;
+
   float vx, vy, vz;
   float px, py, pz;
-
-
-
   
+
+  float lastYaw, lastPitch, lastRoll;
+  
+  
+
 };
