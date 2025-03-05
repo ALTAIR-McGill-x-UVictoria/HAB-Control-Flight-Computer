@@ -3,236 +3,280 @@
 StateMachine::StateMachine() : 
     temperature(0), pressure(0), altitude(0),
     currentState(INITIALIZATION),
-    calibrationSubState(CALIBRATION_NORMAL),
+    initializedSubState(CALIBRATION),
+    calibrationSubState(TELEMETRY_CHECK),
+    stateEntryTime(0), abortCondition(false),
     telemetryThreadId(-1), dataCollectionThreadId(-1),
-    imu1Working(false), imu2Working(false), imu3Working(false), workingImuCount(0) {
+    telemetryThreadState(THREAD_STOPPED), dataCollectionThreadState(THREAD_STOPPED),
+    workingImuCount(0) {
 }
 
 void StateMachine::begin() {
-    activationBeepSound();
     loadStateFromEEPROM();
-
-    // Initialize hardware - go to FAULT state if unsuccessful
-    if (!initializeHardware()) {
-        transitionToState(FAULT);
-        return;
-    }
-
-    // Start data collection and telemetry threads
-    telemetryThreadId = threads.addThread(telemetryThreadMethod, this);
-    dataCollectionThreadId = threads.addThread(dataCollectionThreadMethod, this);
-    transitionToState(INITIALIZATION);
-}
-
-bool StateMachine::initializeHardware() {
-    return initializeSensors() && initializeBattery() && 
-           initializeSD() && initializeTelemetry();
+    stateEntryTime = millis();
+    
+    // Start in INITIALIZATION state
+    currentState = INITIALIZATION;
+    logSystemEvent("Starting system initialization");
+    
+    // Start data collection thread immediately to get sensor readings
+    startThreads();
 }
 
 void StateMachine::run() {
+    // Check for abort condition in flight states
+    if (abortCondition && currentState == INITIALIZED && 
+        (initializedSubState == READY || 
+         initializedSubState == ASCENT || 
+         initializedSubState == STABILIZATION)) {
+        logSystemEvent("Abort condition detected");
+        transitionToSubState(DESCENT);
+        abortCondition = false;
+    }
+    
+    // Handle the current state
     handleCurrentState();
-    updateStatusLog();
 }
 
 void StateMachine::handleCurrentState() {
     switch(currentState) {
         case INITIALIZATION: handleInitializationState(); break;
-        case CALIBRATION_TELEMETRY:    handleCalibrationState();    break;
+        case INITIALIZED:    handleInitializedState();    break;
+        case FAULT:          handleFaultState();          break;
+        case TERMINATION:    handleTerminationState();    break;
+    }
+}
 
+void StateMachine::handleInitializationState() {
+    // Basic hardware initialization
+    if (!initializeHardware()) {
+        logSystemEvent("Hardware initialization failed");
+        transitionToState(FAULT);
+    } else {
+        logSystemEvent("Hardware initialization successful");
+        transitionToState(INITIALIZED);
+        transitionToSubState(CALIBRATION);
+        transitionToCalibrationSubState(TELEMETRY_CHECK);
+    }
+}
+
+void StateMachine::handleInitializedState() {
+    switch(initializedSubState) {
+        case CALIBRATION:    handleCalibrationState();    break;
         case READY:          handleReadyState();          break;
         case ASCENT:         handleAscentState();         break;
         case STABILIZATION:  handleStabilizationState();  break;
         case DESCENT:        handleDescentState();        break;
-        case TERMINATION:    handleTerminationState();    break;
-        case FAULT:          handleFaultState();          break;
-        case TELEMETRY_HOLD:
-        case DATA_COLLECTION_HOLD:
-            // Threads handle these states
-            break;
     }
 }
 
-// EEPROM methods
-void StateMachine::loadStateFromEEPROM() {
-    EEPROM.get(EEPROM_STATE_ADDRESS, currentState);
-    if (currentState == 0) currentState = INITIALIZATION;
+void StateMachine::handleCalibrationState() {
+    switch(calibrationSubState) {
+        case TELEMETRY_CHECK:    handleTelemetryCheckState();     break;
+        case BATTERY_CHECK:      handleBatteryCheckState();       break;
+        case PRESSURE_CHECK:     handlePressureCheckState();      break;
+        case TEMPERATURE_CHECK:  handleTemperatureCheckState();   break;
+        case IMU_CHECK:          handleImuCheckState();           break;
+    }
 }
 
-void StateMachine::saveStateToEEPROM() {
-    EEPROM.put(EEPROM_STATE_ADDRESS, currentState);
+// Calibration sub-state handlers
+void StateMachine::handleTelemetryCheckState() {
+    if (initializeTelemetry()) {
+        logSystemEvent("Telemetry check passed");
+        transitionToCalibrationSubState(BATTERY_CHECK);
+    } else {
+        logSystemEvent("Telemetry check failed");
+        transitionToState(FAULT);
+    }
+}
+
+void StateMachine::handleBatteryCheckState() {
+    if (initializeBattery()) {
+        logSystemEvent("Battery check passed");
+        transitionToCalibrationSubState(PRESSURE_CHECK);
+    } else {
+        logSystemEvent("Battery check failed");
+        transitionToState(FAULT);
+    }
+}
+
+void StateMachine::handlePressureCheckState() {
+    if (isPressureSensorWorking()) {
+        logSystemEvent("Pressure sensor check passed");
+        transitionToCalibrationSubState(TEMPERATURE_CHECK);
+    } else {
+        logSystemEvent("Pressure sensor check failed");
+        transitionToState(FAULT);
+    }
+}
+
+void StateMachine::handleTemperatureCheckState() {
+    if (isTemperatureSensorWorking()) {
+        logSystemEvent("Temperature check passed");
+    } else {
+        logSystemEvent("Temperature check warning");
+    }
+    transitionToCalibrationSubState(IMU_CHECK);
+}
+
+void StateMachine::handleImuCheckState() {
+    checkSensorsStatus(); // Update IMU status
+    
+    if (workingImuCount < 2) {
+        logSystemEvent("Not enough working IMUs: " + String(workingImuCount));
+        transitionToState(FAULT);
+    } else if (workingImuCount == 2) {
+        logSystemEvent("Warning: Only 2 IMUs working");
+        transitionToSubState(READY);
+    } else {
+        logSystemEvent("All IMUs working properly");
+        transitionToSubState(READY);
+    }
+}
+
+// Initialized sub-state handlers
+void StateMachine::handleReadyState() {
+    if (sensors.isAscending()) {
+        logSystemEvent("Ascent detected");
+        transitionToSubState(ASCENT);
+    }
+}
+
+void StateMachine::handleAscentState() {
+    if (hasReachedTargetAltitude()) {
+        logSystemEvent("Target altitude reached");
+        transitionToSubState(STABILIZATION);
+    }
+}
+
+void StateMachine::handleStabilizationState() {
+    if (millis() - stateEntryTime > STABILIZATION_TIMEOUT) {
+        logSystemEvent("Stabilization timeout");
+        transitionToSubState(DESCENT);
+    }
+}
+
+void StateMachine::handleDescentState() {
+    if (hasTouchedDown()) {
+        logSystemEvent("Touchdown detected");
+        transitionToState(TERMINATION);
+    }
+}
+
+void StateMachine::handleFaultState() {
+    if (millis() - stateEntryTime > FAULT_TIMEOUT) {
+        logSystemEvent("Fault timeout reached");
+        transitionToState(TERMINATION);
+    }
+}
+
+void StateMachine::handleTerminationState() {
+    logSystemEvent("System terminated");
+    stopThreads();
+}
+
+// State transition methods
+void StateMachine::transitionToState(SystemState newState) {
+    logSystemEvent("State: " + String(currentState) + " -> " + String(newState));
+    
+    currentState = newState;
+    stateEntryTime = millis();
+    saveStateToEEPROM();
+}
+
+void StateMachine::transitionToSubState(InitializedSubState newSubState) {
+    if (currentState != INITIALIZED) return;
+    
+    logSystemEvent("SubState: " + String(initializedSubState) + " -> " + String(newSubState));
+    
+    initializedSubState = newSubState;
+    stateEntryTime = millis();
+}
+
+void StateMachine::transitionToCalibrationSubState(CalibrationSubState newCalibState) {
+    if (initializedSubState != CALIBRATION) return;
+    
+    calibrationSubState = newCalibState;
+    stateEntryTime = millis();
 }
 
 // Hardware initialization
+bool StateMachine::initializeHardware() {
+    return initializeSensors() && initializeSD();
+}
+
 bool StateMachine::initializeSensors() {
     sensorInitStatus = sensors.begin();
     checkSensorsStatus();
     return sensorInitStatus.temperature && 
            sensorInitStatus.pressure && 
-           getInitializedImuCount() >= 2;
+           getInitializedImuCount() >= 1;
 }
 
 bool StateMachine::initializeBattery() {
-    // TODO: Battery initialization
-    return true;
+    return true; // Placeholder
 }
 
 bool StateMachine::initializeSD() {
     if (!SD.begin(SD_CHIP_SELECT)) {
-        logSystemEvent("SD Card Init Failed");
         return false;
     }
     return true;
 }
 
 bool StateMachine::initializeTelemetry() {
-    // TODO: Implement telemetry
-    return true;
+    return true; // Placeholder
 }
 
-// State handlers
-void StateMachine::handleInitializationState() {
-    if (isTemperatureSensorWorking() && 
-        isPressureSensorWorking() && 
-        areEnoughImusWorking()) {
-        transitionToState(CALIBRATION);
+// Thread management
+void StateMachine::startThreads() {
+    if (telemetryThreadId == -1) {
+        telemetryThreadId = threads.addThread(telemetryThreadMethod, this);
+        telemetryThreadState = THREAD_RUNNING;
     }
-}
-
-void StateMachine::handleCalibrationState() {
-    runCalibration();
     
-    switch(calibrationSubState) {
-        case CALIBRATION_WARNING: handleCalibrationWarning(); break;
-        case CALIBRATION_FAULT:   handleCalibrationFault();   break;
-        case CALIBRATION_NORMAL:
-            if (isTemperatureSensorWorking() && 
-                isPressureSensorWorking() && 
-                areEnoughImusWorking()) {
-                transitionToState(READY);
-            }
-            break;
+    if (dataCollectionThreadId == -1) {
+        dataCollectionThreadId = threads.addThread(dataCollectionThreadMethod, this);
+        dataCollectionThreadState = THREAD_RUNNING;
     }
 }
 
-void StateMachine::handleReadyState() {
-    if (sensors.isAscending()) transitionToState(ASCENT);
-}
-
-void StateMachine::handleAscentState() {
-    if (hasReachedTargetAltitude()) transitionToState(STABILIZATION);
-}
-
-void StateMachine::handleStabilizationState() {
-    if (sensors.isDescending()) transitionToState(DESCENT);
-}
-
-void StateMachine::handleDescentState() {
-    static unsigned long descentStartTime = millis();
-    if (millis() - descentStartTime > 60000) transitionToState(TERMINATION);
-}
-
-void StateMachine::handleTerminationState() {
-    logSystemEvent("Mission terminated");
-}
-
-void StateMachine::handleFaultState() {
-    faultBeepSound();
-    logSystemEvent("System in FAULT state");
-}
-
-// Calibration methods
-void StateMachine::runCalibration() {
-    float temperature = sensors.getTemperature();
-    if (temperature < -20 || temperature > 80) {
-        calibrationSubState = CALIBRATION_WARNING;
+void StateMachine::pauseThreads() {
+    if (telemetryThreadState == THREAD_RUNNING) {
+        threads.suspend(telemetryThreadId);
+        telemetryThreadState = THREAD_PAUSED;
+    }
+    
+    if (dataCollectionThreadState == THREAD_RUNNING) {
+        threads.suspend(dataCollectionThreadId);
+        dataCollectionThreadState = THREAD_PAUSED;
     }
 }
 
-void StateMachine::handleCalibrationWarning() {
-    logSystemEvent("Calibration Warning: Temperature out of range");
-}
-
-void StateMachine::handleCalibrationFault() {
-    logSystemEvent("Calibration Fault Detected");
-    transitionToState(FAULT);
-}
-
-// State transition
-void StateMachine::transitionToState(SystemState newState) {
-    SystemState previousState = currentState;
-    currentState = newState;
-    saveStateToEEPROM();
-    logSystemEvent("State Transition: " + String(previousState) + " -> " + String(newState));
-}
-
-bool StateMachine::hasReachedTargetAltitude() {
-    return altitude >= TARGET_ALTITUDE;
-}
-
-// Logging methods
-void StateMachine::logSystemEvent(const String& event) {
-    loggingMutex.lock();
-    writeToSD(event);
-    loggingMutex.unlock();
-    // TODO: Log to telemetry
-}
-
-void StateMachine::writeToSD(const String& data) {
-    File logFile = SD.open("system_log.txt", FILE_WRITE);
-    if (logFile) {
-        logFile.println(data);
-        logFile.close();
+void StateMachine::resumeThreads() {
+    if (telemetryThreadState == THREAD_PAUSED) {
+        threads.restart(telemetryThreadId);
+        telemetryThreadState = THREAD_RUNNING;
+    }
+    
+    if (dataCollectionThreadState == THREAD_PAUSED) {
+        threads.restart(dataCollectionThreadId);
+        dataCollectionThreadState = THREAD_RUNNING;
     }
 }
 
-// Sound effects
-void StateMachine::activationBeepSound() {
-    // TODO: Implement beep
-}
-
-void StateMachine::faultBeepSound() {
-    // TODO: Implement fault beep
-}
-
-// Status logging - simplified to remove compact status code
-void StateMachine::updateStatusLog() {
-    static unsigned long lastLogTime = 0;
-    if (millis() - lastLogTime > 1000) { // Log every second
-        // Create a local copy of the data under mutex protection
-        float currentTemp, currentPressure, currentAltitude;
-        int currentImuCount;
-        
-        sensorDataMutex.lock();
-        currentTemp = temperature;
-        currentPressure = pressure;
-        currentAltitude = altitude;
-        currentImuCount = workingImuCount;
-        sensorDataMutex.unlock();
-        
-        // Build detailed sensor status string
-        String statusMessage = "State: " + String(currentState) + " | ";
-        
-        // Temperature info
-        statusMessage += "Temp: " + String(currentTemp, 1) + "C ";
-        statusMessage += isTemperatureSensorWorking() ? "(OK) " : "(FAULT) ";
-        
-        // Pressure and altitude info
-        statusMessage += "Press: " + String(currentPressure, 0) + "hPa ";
-        statusMessage += isPressureSensorWorking() ? "(OK) " : "(FAULT) ";
-        statusMessage += "Alt: " + String(currentAltitude, 0) + "m | ";
-        
-        // IMU status
-        statusMessage += "IMUs: " + String(currentImuCount) + "/3 ";
-        if (currentImuCount == 3) statusMessage += "(OK)";
-        else if (currentImuCount == 2) statusMessage += "(WARN)";
-        else statusMessage += "(FAULT)";
-        
-        // Log the status information
-        loggingMutex.lock();
-        logSystemEvent("Status: " + statusMessage);
-        loggingMutex.unlock();
-        
-        lastLogTime = millis();
+void StateMachine::stopThreads() {
+    if (telemetryThreadId != -1) {
+        threads.kill(telemetryThreadId);
+        telemetryThreadId = -1;
+        telemetryThreadState = THREAD_STOPPED;
+    }
+    
+    if (dataCollectionThreadId != -1) {
+        threads.kill(dataCollectionThreadId);
+        dataCollectionThreadId = -1;
+        dataCollectionThreadState = THREAD_STOPPED;
     }
 }
 
@@ -254,14 +298,13 @@ void StateMachine::dataCollectionThreadMethod(void* arg) {
 }
 
 void StateMachine::processTelemetry() {
-    // TODO: Implement telemetry processing
+    // Send data via telemetry link
+    // This would be implemented based on your hardware
 }
 
 void StateMachine::collectData() {
-    // Lock sensor data mutex before updating values
     sensorDataMutex.lock();
     
-    // Read temperature and pressure
     if (sensorInitStatus.temperature) {
         temperature = sensors.getTemperature();
     }
@@ -271,13 +314,9 @@ void StateMachine::collectData() {
         altitude = sensors.getAltitude();
     }
     
-    // Get fused IMU data if any IMUs are working
     if (workingImuCount > 0) {
         sensors.getFusedOrientation(yaw, pitch, roll, accuracyDegrees);
         sensors.getFusedLinearAcceleration(ax, ay, az, accuracy);
-    } else {
-        yaw = pitch = roll = ax = ay = az = 0;
-        accuracyDegrees = accuracy = -1;
     }
     
     sensorDataMutex.unlock();
@@ -288,36 +327,23 @@ void StateMachine::checkSensorsStatus() {
     float tempYaw, tempPitch, tempRoll, tempAccuracy;
     workingImuCount = 0;
     
-    // Check IMU statuses
     if (sensorInitStatus.imu1) {
         sensors.getOrientation(sensors.imu1, tempYaw, tempPitch, tempRoll, tempAccuracy);
-        imu1Working = (tempAccuracy >= 0);
-        if (imu1Working) workingImuCount++;
+        if (tempAccuracy >= 0) workingImuCount++;
     }
     
     if (sensorInitStatus.imu2) {
         sensors.getOrientation(sensors.imu2, tempYaw, tempPitch, tempRoll, tempAccuracy);
-        imu2Working = (tempAccuracy >= 0);
-        if (imu2Working) workingImuCount++;
+        if (tempAccuracy >= 0) workingImuCount++;
     }
     
     if (sensorInitStatus.imu3) {
         sensors.getOrientation(sensors.imu3, tempYaw, tempPitch, tempRoll, tempAccuracy);
-        imu3Working = (tempAccuracy >= 0);
-        if (imu3Working) workingImuCount++;
-    }
-    
-    // Read temperature and pressure
-    if (sensorInitStatus.temperature) {
-        temperature = sensors.getTemperature();
-    }
-    
-    if (sensorInitStatus.pressure) {
-        pressure = sensors.getPressure();
-        altitude = sensors.getAltitude();
+        if (tempAccuracy >= 0) workingImuCount++;
     }
 }
 
+// Utility methods
 bool StateMachine::isTemperatureSensorWorking() {
     if (!sensorInitStatus.temperature) return false;
     return temperature > -100.0 && temperature < 200.0;
@@ -336,4 +362,34 @@ int StateMachine::getInitializedImuCount() {
     return (sensorInitStatus.imu1 ? 1 : 0) + 
            (sensorInitStatus.imu2 ? 1 : 0) + 
            (sensorInitStatus.imu3 ? 1 : 0);
+}
+
+// Flight monitoring
+bool StateMachine::hasReachedTargetAltitude() {
+    return altitude >= TARGET_ALTITUDE;
+}
+
+bool StateMachine::hasTouchedDown() {
+    return altitude <= 10.0; // 10 meters threshold
+}
+
+// EEPROM methods
+void StateMachine::loadStateFromEEPROM() {
+    EEPROM.get(EEPROM_STATE_ADDRESS, currentState);
+    if (currentState > TERMINATION) currentState = INITIALIZATION;
+}
+
+void StateMachine::saveStateToEEPROM() {
+    EEPROM.put(EEPROM_STATE_ADDRESS, currentState);
+}
+
+// Logging
+void StateMachine::logSystemEvent(const String& event) {
+    loggingMutex.lock();
+    Serial.println(event);
+    loggingMutex.unlock();
+}
+
+void StateMachine::setAbortCondition() {
+    abortCondition = true;
 }

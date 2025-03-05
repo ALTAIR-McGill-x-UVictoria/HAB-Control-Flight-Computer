@@ -10,27 +10,41 @@
 // Define constants
 #define EEPROM_STATE_ADDRESS 0
 #define SD_CHIP_SELECT 10
-#define TARGET_ALTITUDE 20000.0 // meters
+#define TARGET_ALTITUDE 20000.0
+#define FAULT_TIMEOUT 30000
+#define STABILIZATION_TIMEOUT 60000
 
-// Enum for tracking current system state
+// Main states
 enum SystemState {
     INITIALIZATION,
+    INITIALIZED,
     FAULT,
+    TERMINATION
+};
+
+// Initialized sub-states
+enum InitializedSubState {
     CALIBRATION,
     READY,
     ASCENT,
     STABILIZATION,
-    DESCENT,
-    TERMINATION,
-    TELEMETRY_HOLD,
-    DATA_COLLECTION_HOLD
+    DESCENT
 };
 
-// Enum for calibration state subtypes
+// Calibration sub-states
 enum CalibrationSubState {
-    CALIBRATION_NORMAL,
-    CALIBRATION_WARNING,
-    CALIBRATION_FAULT
+    TELEMETRY_CHECK,
+    BATTERY_CHECK,
+    PRESSURE_CHECK,
+    TEMPERATURE_CHECK,
+    IMU_CHECK
+};
+
+// Thread state
+enum ThreadState {
+    THREAD_RUNNING,
+    THREAD_PAUSED,
+    THREAD_STOPPED
 };
 
 class StateMachine {
@@ -38,6 +52,7 @@ public:
     StateMachine();
     void begin();
     void run();
+    void setAbortCondition();
 
 private:
     // Sensor data
@@ -47,37 +62,47 @@ private:
     
     // State variables
     SystemState currentState;
+    InitializedSubState initializedSubState;
     CalibrationSubState calibrationSubState;
+    unsigned long stateEntryTime;
+    bool abortCondition;
     
     // Hardware management
     Sensors sensors;
     SensorStatus sensorInitStatus;
     int telemetryThreadId, dataCollectionThreadId;
+    ThreadState telemetryThreadState, dataCollectionThreadState;
     
-    // Sensor status tracking
-    bool imu1Working, imu2Working, imu3Working;
+    // Sensor tracking
     int workingImuCount;
 
     // Core functionality
     bool initializeHardware();
     void transitionToState(SystemState newState);
+    void transitionToSubState(InitializedSubState newSubState);
+    void transitionToCalibrationSubState(CalibrationSubState newCalibState);
     void handleCurrentState();
     void logSystemEvent(const String& event);
     
     // State handlers
     void handleInitializationState();
+    void handleInitializedState();
+    void handleFaultState();
+    void handleTerminationState();
+    
+    // Sub-state handlers
     void handleCalibrationState();
     void handleReadyState();
     void handleAscentState();
     void handleStabilizationState();
     void handleDescentState();
-    void handleTerminationState();
-    void handleFaultState();
-
-    // Calibration handling
-    void runCalibration();
-    void handleCalibrationWarning();
-    void handleCalibrationFault();
+    
+    // Calibration sub-state handlers
+    void handleTelemetryCheckState();
+    void handleBatteryCheckState();
+    void handlePressureCheckState();
+    void handleTemperatureCheckState();
+    void handleImuCheckState();
 
     // EEPROM functions
     void loadStateFromEEPROM();
@@ -91,6 +116,7 @@ private:
     
     // Flight monitoring
     bool hasReachedTargetAltitude();
+    bool hasTouchedDown();
 
     // Thread methods
     static void telemetryThreadMethod(void* arg);
@@ -98,12 +124,10 @@ private:
     void processTelemetry();
     void collectData();
     void checkSensorsStatus();
-    
-    // Utility methods
-    void activationBeepSound();
-    void faultBeepSound();
-    void updateStatusLog();
-    void writeToSD(const String& data);
+    void startThreads();
+    void pauseThreads();
+    void resumeThreads();
+    void stopThreads();
     
     // Sensor status methods
     bool isTemperatureSensorWorking();
@@ -111,16 +135,9 @@ private:
     bool areEnoughImusWorking();
     int getInitializedImuCount();
 
-    // Mutex locks for thread safety
-    Threads::Mutex sensorDataMutex;    // Protects sensor readings
-    Threads::Mutex loggingMutex;       // Protects SD card operations
-
-    // Add thread control flags
-    bool threadsShouldRun;  // Flag to control thread execution
-    
-    // Add thread control methods
-    void startThreads();
-    void stopThreads();
+    // Thread safety
+    Threads::Mutex sensorDataMutex;
+    Threads::Mutex loggingMutex;
 };
 
 #endif // STATE_MACHINE_H
