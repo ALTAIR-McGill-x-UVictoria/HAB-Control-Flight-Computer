@@ -2,303 +2,156 @@
 #include <TeensyThreads.h>
 #include "StateMachine.h"
 
-// States
-enum States {
-    INITIALIZATION = 0,
-    TELEMETRY_CHECK = 1,
-    BATTERY_CHECK = 2,
-    SENSOR_CHECK = 3,
-    FAULT = 4,
-    TERMINATION = 5,
-    ACTION = 6,
-    // Substates within Action
-    READY = 7,
-    ASCENT = 8,
-    STABILIZATION = 9,
-    DESCENT = 10,
-    // Concurrent states within Action
-    TELEMETRY = 11,
-    DATA_COLLECTION = 12
+enum State {
+    INITIALIZATION,
+    TELEMETRY_CHECK,
+    BATTERY_CHECK,
+    SENSOR_CHECK,
+    FAULT,
+    TERMINATION,
+    READY,
+    ASCENT,
+    STABILIZATION,
+    DESCENT
 };
 
-// Global state machine
-StateMachine<13, 20> stateMachine;
+bool initialization_status;
+char telemetry_status;
+char battery_status;
+char altimeter_status;
+char temperature_status;
+char imu_status[3];
+char gps_status;
 
-// Function declarations
-void initialization_entry();
-void initialization_do();
-void telemetry_check_entry();
-void telemetry_check_do();
-void battery_check_entry();
-void battery_check_do();
-void sensor_check_entry();
-void sensor_check_do();
-void fault_entry();
-void fault_do();
-void termination_entry();
-void action_entry();
-void action_do();
-void ready_entry();
-void ready_do();
-void ascent_do();
-void stabilization_do();
-void descent_entry();
-void telemetry_do();
-void data_collection_do();
+StateMachine<10, 20> flight_fsm;
+int telemetry_thread_id = -1;
+int data_thread_id = -1;
 
-// Transition condition functions
-bool check_initialization_ok();
-bool check_telemetry_ok();
-bool check_battery_ok();
-bool check_sensors_ok();
-bool check_initialization_fault();
-bool check_telemetry_fault();
-bool check_battery_fault();
-bool check_sensors_fault();
-bool check_ascending();
-bool check_target_altitude();
-bool check_timeout();
-bool check_touchdown();
+void initialization_entry() {
+    // Init data storage
+    // Init libs and models
+    // Activation beep
+}
 
-// Global thread tracking
-int telemetryThreadId = -1;
-int dataCollectionThreadId = -1;
+void telemetry_check_entry() {
+    // Init spi telemetry api
+    // Verify connection
+    // Verify GPS (using api)
+    // Print status
+}
 
-// Threads for concurrent states within Action
+void battery_check_entry() {
+    // Verify battery (using api)
+    // Print status
+}
+
+void sensor_check_entry() {
+    // Init sensors (altimeter, imu, temperature)
+    // Verify altimeter sensor
+    // Verify temperature sensor
+    // Verify imu sensors
+    // Print status
+}
+
+void fault_entry() {
+    // Fault logging (maybe do that in the transition too for specific faults)
+    // Stop all motors
+    // Stop all sensors
+    // Print status
+}
+
+void fault_do() {
+    // Fault beep
+    // Wait for timeout
+}
+
+void termination_entry() {
+    // Print status
+    // Stop threads if they're running
+}
+
+void ready_do() {
+    // Compute altitude ascended using pressure sensor
+}
+
+void ascent_do() {
+    // Status log
+}
+
+void stabilization_do() {
+    // Control algorithm
+    // Output to motors
+    // Status log
+}
+
+void descent_entry() {
+    // Stop all motors
+    // Release payload
+}
+
+void descent_do() {
+    // Status log
+    // Compute if reached touchdown
+}
+
+
 void telemetry_thread() {
     while(true) {
-        telemetry_do();
-        threads.delay(100);
+        // Read telemetry data
+        // Send telemetry data
     }
 }
 
 void data_collection_thread() {
     while(true) {
-        data_collection_do();
-        threads.delay(200);
+        // data_collection_do();
+        // threads.delay(200);
     }
 }
 
-// Start concurrent threads
-void start_action_threads() {
-    // Stop any existing threads first
-    if (telemetryThreadId != -1) {
-        threads.kill(telemetryThreadId);
-        telemetryThreadId = -1;
+void stop_all_threads() {
+    if (telemetry_thread_id != -1) {
+        threads.kill(telemetry_thread_id);
+        telemetry_thread_id = -1;
     }
-    if (dataCollectionThreadId != -1) {
-        threads.kill(dataCollectionThreadId);
-        dataCollectionThreadId = -1;
-    }
-
-    // Start new threads
-    telemetryThreadId = threads.addThread(telemetry_thread);
-    dataCollectionThreadId = threads.addThread(data_collection_thread);
-}
-
-// Stop concurrent threads
-void stop_action_threads() {
-    if (telemetryThreadId != -1) {
-        threads.kill(telemetryThreadId);
-        telemetryThreadId = -1;
-    }
-    if (dataCollectionThreadId != -1) {
-        threads.kill(dataCollectionThreadId);
-        dataCollectionThreadId = -1;
+    if (data_thread_id != -1) {
+        threads.kill(data_thread_id);
+        data_thread_id = -1;
     }
 }
 
-// Implementation of state functions
-void initialization_entry() {
-    Serial.println("Entering Initialization");
+void start_all_threads() {
+    stop_all_threads();
+    telemetry_thread_id = threads.addThread(telemetry_thread);
+    data_thread_id = threads.addThread(data_collection_thread);
 }
 
-void initialization_do() {
-    // Initialization tasks
-}
-
-void telemetry_check_entry() {
-    Serial.println("Entering Telemetry Check");
-}
-
-void telemetry_check_do() {
-    // Telemetry checks
-}
-
-void battery_check_entry() {
-    Serial.println("Entering Battery Check");
-}
-
-void battery_check_do() {
-    // Battery checks
-}
-
-void sensor_check_entry() {
-    Serial.println("Entering Sensor Check");
-}
-
-void sensor_check_do() {
-    // Sensor checks
-}
-
-void fault_entry() {
-    Serial.println("Entering Fault");
-    // Stop threads if they're running
-    stop_action_threads();
-}
-
-void fault_do() {
-    // Fault handling
-}
-
-void termination_entry() {
-    Serial.println("Entering Termination");
-    // Stop threads if they're running
-    stop_action_threads();
-}
-
-void action_entry() {
-    Serial.println("Entering Action");
-    // Start concurrent threads when entering Action state
-    start_action_threads();
-}
-
-void action_do() {
-    // Manage concurrent states and overall action logic
-}
-
-void action_exit() {
-    // Stop threads when exiting Action state
-    stop_action_threads();
-}
-
-void ready_entry() {
-    Serial.println("Entering Ready");
-}
-
-void ready_do() {
-    // Ready state logic
-}
-
-void ascent_do() {
-    // Ascent logic
-}
-
-void stabilization_do() {
-    // Stabilization control
-}
-
-void descent_entry() {
-    Serial.println("Entering Descent");
-}
-
-void telemetry_do() {
-    // Process telemetry input/output
-}
-
-void data_collection_do() {
-    // Sensor data collection
-}
-
-// Transition conditions
-bool check_initialization_ok() {
-    return true;
-}
-
-bool check_telemetry_ok() {
-    return true;
-}
-
-bool check_battery_ok() {
-    return true;
-}
-
-bool check_sensors_ok() {
-    return true;
-}
-
-bool check_initialization_fault() {
-  return !check_initialization_ok();
-}
-
-bool check_telemetry_fault() {
-  return !check_telemetry_ok();
-}
-
-bool check_battery_fault() {
-  return !check_battery_ok();
-}
-
-bool check_sensors_fault() {
-  return !check_sensors_ok();
-}
-
-bool check_ascending() {
-    return true;
-}
-
-bool check_target_altitude() {
-    return true;
-}
-
-bool check_timeout() {
-    return true;
-}
-
-bool check_touchdown() {
-    return true;
+bool sensor_check_to_ready() {
+    char available_imus = imu_status[0] > 0 + imu_status[1] > 0 + imu_status[2] > 0;
 }
 
 void setup() {
     Serial.begin(115200);
 
-    // Add states
-    stateMachine.addState(INITIALIZATION, initialization_entry, initialization_do);
-    stateMachine.addState(TELEMETRY_CHECK, telemetry_check_entry, telemetry_check_do);
-    stateMachine.addState(BATTERY_CHECK, battery_check_entry, battery_check_do);
-    stateMachine.addState(SENSOR_CHECK, sensor_check_entry, sensor_check_do);
-    stateMachine.addState(FAULT, fault_entry, fault_do);
-    stateMachine.addState(TERMINATION, termination_entry);
+    // Flight state machine
+    flight_fsm.addState(INITIALIZATION, initialization_entry, nullptr, nullptr);
+    flight_fsm.addState(TELEMETRY_CHECK, telemetry_check_entry, nullptr, nullptr);
+    flight_fsm.addState(BATTERY_CHECK, battery_check_entry, nullptr, nullptr);
+    flight_fsm.addState(SENSOR_CHECK, sensor_check_entry, nullptr, nullptr);
+    flight_fsm.addState(FAULT, fault_entry, fault_do), nullptr;
+    flight_fsm.addState(TERMINATION, termination_entry, nullptr);
+    flight_fsm.addState(READY, nullptr, ready_do, nullptr);
+    flight_fsm.addState(ASCENT, nullptr, ascent_do, nullptr);
+    flight_fsm.addState(STABILIZATION, nullptr, stabilization_do, nullptr);
+    flight_fsm.addState(DESCENT, descent_entry, descent_do, nullptr);
     
-    // Explicit Action state
-    stateMachine.addState(ACTION, action_entry, action_do, action_exit);
-    
-    // Action substates
-    stateMachine.addState(READY, ready_entry, ready_do);
-    stateMachine.addState(ASCENT, nullptr, ascent_do);
-    stateMachine.addState(STABILIZATION, nullptr, stabilization_do);
-    stateMachine.addState(DESCENT, descent_entry);
-    
-    // Concurrent Action states
-    stateMachine.addState(TELEMETRY, nullptr, telemetry_do);
-    stateMachine.addState(DATA_COLLECTION, nullptr, data_collection_do);
+    flight_fsm.setInitialState(INITIALIZATION);
 
     // Add transitions
-    stateMachine.addTransition(INITIALIZATION, TELEMETRY_CHECK, check_initialization_ok);
-    stateMachine.addTransition(TELEMETRY_CHECK, BATTERY_CHECK, check_telemetry_ok);
-    stateMachine.addTransition(BATTERY_CHECK, SENSOR_CHECK, check_battery_ok);
-    stateMachine.addTransition(SENSOR_CHECK, ACTION, check_sensors_ok);
-    
-    // Fault transitions
-    stateMachine.addTransition(INITIALIZATION, FAULT, check_initialization_fault);
-    stateMachine.addTransition(TELEMETRY_CHECK, FAULT, check_telemetry_fault);
-    stateMachine.addTransition(BATTERY_CHECK, FAULT, check_battery_fault);
-    stateMachine.addTransition(SENSOR_CHECK, FAULT, check_sensors_fault);
-    
-    // Action state internal transitions
-    stateMachine.addTransition(READY, ASCENT, check_ascending);
-    stateMachine.addTransition(ASCENT, STABILIZATION, check_target_altitude);
-    stateMachine.addTransition(STABILIZATION, DESCENT, check_timeout);
-    stateMachine.addTransition(DESCENT, TERMINATION, check_touchdown);
-
-    // Set initial state
-    stateMachine.setInitialState(INITIALIZATION);
+    flight_fsm.addTransition(SENSOR_CHECK, READY, sensor_check_to_ready);
 }
 
 void loop() {
-    // Update state machine in the main loop
-    stateMachine.update();
-    
-    // Add any additional loop logic if needed
-    delay(50);  // Small delay to prevent excessive CPU usage
+    flight_fsm.update();
+    threads.yield();
 }
