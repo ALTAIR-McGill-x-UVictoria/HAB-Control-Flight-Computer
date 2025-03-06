@@ -31,6 +31,12 @@ Sensors::Sensors()
 
 SensorStatus Sensors::begin(SensorStatus status)
 {
+  Wire1.begin();
+  Wire2.begin();
+  Wire1.flush();
+  Wire2.flush();
+  Wire1.setClock(10000);
+  Wire2.setClock(10000);
   if (!status.imu1)
     status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
@@ -78,15 +84,23 @@ void Sensors::enableReportsForIMU(BNO080* imu, uint16_t interval)
 
 bool Sensors::collectIMUData()
 {
-  return fetchDataFromIMU(&imu1, &imu1Data) &&
-         fetchDataFromIMU(&imu2, &imu2Data) &&
-         fetchDataFromIMU(&imu3, &imu3Data);
+  bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
+  bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
+  bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
+  
+  if (fetchedIMU1 && fetchedIMU2 && fetchedIMU3) {
+    return true;
+  }
+  return false;
 }
 
 bool Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
 {
   if (imu->hasReset()) {
     enableReportsForIMU(imu, interval);
+    Serial.println(" ------------------ BNO085 has reset. ------------------ ");
+    Serial.print(F(" Reason: "));
+    Serial.println(imu->resetReason());
   }
   if (imu->dataAvailable()) {
     data->xLinearAcceleration = imu->getLinAccelX();

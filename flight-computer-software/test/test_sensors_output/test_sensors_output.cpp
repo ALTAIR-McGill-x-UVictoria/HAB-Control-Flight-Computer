@@ -10,8 +10,6 @@ Sensors sensors;
 void setup() {
   Serial.begin(115200);
   SensorStatus status = {false, false, false, false, false};
-  Wire1.begin();
-  Wire2.begin();
   delay(100);
   while (true) {
     status = sensors.begin(status);
@@ -34,7 +32,7 @@ void setup() {
       delay(100);
     }
   }
-  sensors.enableIMUReports(50);
+  sensors.enableIMUReports(100);
   delay(1000);
 }
 
@@ -106,5 +104,6 @@ void loop() {
     Serial.println("Set new relative position to (0.0, 0.0, 0.0)");
   */
     Serial.println("--------------------------");
+    delay(100);
   }
 }
