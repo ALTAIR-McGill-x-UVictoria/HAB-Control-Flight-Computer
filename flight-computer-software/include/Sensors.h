@@ -28,19 +28,56 @@ library to provide the following data :
 // The 'nominal' 0-degrees-C resistance of the sensor: 100.0 for PT100
 #define RNOMINAL 100.0
 
+struct SensorStatus {
+  bool temperature;
+  bool pressure;
+  bool imu1;
+  bool imu2;
+  bool imu3;
+};
+
+struct IMUData
+{
+  float xLinearAcceleration, yLinearAcceleration, zLinearAcceleration;
+  byte linearAccuracy;
+  float xAngularVelocity, yAngularVelocity, zAngularVelocity;
+  byte gyroAccuracy;
+  float yawOrientation, pitchOrientation, rollOrientation, orientationAccuracy;
+  byte rotationAccuracy;
+};
+
 class Sensors
 {
 public:
+  
+  //The temperature probe sensor
+  Adafruit_MAX31865 temperatureProbe = Adafruit_MAX31865(10, 11, 12, 13); // software SPI: CS, DI, DO, CLK
+  
+  //The pressure sensor
+  MS5607 altimeter = MS5607(0x76); // Set I2C address to 0x76 for MS5607
+  
+  //The IMUs, there are 3 IMUs
+  BNO080 imu1 = BNO080();
+  BNO080 imu2 = BNO080();
+  BNO080 imu3 = BNO080();
+  IMUData imu1Data = IMUData();
+  IMUData imu2Data = IMUData();
+  IMUData imu3Data = IMUData();
+  
+  uint16_t interval = 50;
+
+  unsigned long lastVelocityUpdateTime;
+  unsigned long lastPositionUpdateTime;
+
+  float vx, vy, vz;
+  float px, py, pz;
+  
   //Constructor
   Sensors();
 
   //Initializes the sensors
-  bool begin();
-  
-  //Enables reports for the IMU
-  //params: BNO080 imu, uint16_t interval
-  void enableReports(BNO080 imu, uint16_t interval = 10);
-  
+  SensorStatus begin();
+
   //Gets the temperature in degrees Celsius
   //returns: float temperature
   float getTemperature(); 
@@ -53,23 +90,43 @@ public:
   //returns: float altitude
   float getAltitude();
 
-  //Gets the linear acceleration
-  //If data is not available from a sensor, set the accuracy to -1
-  //params: BNO080 imu, float &x, float &y, float &z, float &accuracy
-  void getLinearAcceleration(BNO080 imu, float &x, float &y, float &z, float &accuracy);
+  void enableIMUReports(uint16_t interval=50);
 
-  //Gets the orientation
-  //If data is not available from a sensor, set the accuracy to -1
-  //params: BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees
-  void getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees);
+  //Enables reports for the IMU
+  //params: BNO080* imu, uint16_t interval
+  void enableReportsForIMU(BNO080* imu, uint16_t interval=50);
   
+  void collectIMUData();
+
+  void fetchDataFromIMU(BNO080* imu, IMUData* data);
+  
+  //Gets the fused linear acceleration, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  //params: float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration, byte &linearAccuracy
+  void getFusedLinearAcceleration(float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration, byte &linearAccuracy);
+
+  //Gets the fused angular velocity, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  //params: float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity, byte &gyroAccuracy
+  void getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity, byte &gyroAccuracy);
+
+  //Gets the fused orientation, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  //params: float &yawOrientation, float &pitchOrientation, float &rollOrientation, float &orientationAccuracy, byte &rotationAccuracy
+  void getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation, float &orientationAccuracy, byte &rotationAccuracy);
+
+  //If 3 sensors are working, get the median value, filters out outliers. 
+  //If only 2 sensors are working, return the value with best accuracy
+  //If only one sensor is working, return that value
+  //IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
+  //Used inside of getFusedLinearAcceleration and getFusedOrientation
+  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
+  float sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy={});
+
   //Gets the relative velocity
-  //params: BNO080 imu, float &vx, float &vy, float &vz
-  void getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz);
+  //params: float &vx, float &vy, float &vz
+  void getRelativeVelocity(float &vx, float &vy, float &vz);
 
   //Gets the relative position
-  //params: BNO080 imu, float &px, float &py, float &pz
-  void getRelativePosition(BNO080 imu, float &px, float &py, float &pz);
+  //params: float &px, float &py, float &pz
+  void getRelativePosition(float &px, float &py, float &pz);
   
   //Sets the relative velocity
   //params: float vx, float vy, float vz
@@ -78,59 +135,5 @@ public:
   //Sets the relative position
   //params: float px, float py, float pz
   void setRelativePosition(float px, float py, float pz);
-
-  //helper function used to do the calculations to convert orientation to angular velocity
-  //params: float currentAngle, float previousAngle, float deltaTime
-  float calculateAngularVelocity(float currentAngle, float previousAngle, float deltaTime);
-
-  //Output in form x, y, z, in radians per second
-  //params: BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity
-  void getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity);
-
-  //Gets the fused linear acceleration, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
-  //params: float &ax, float &ay, float &az, float &linearaccuracy
-  void getFusedLinearAcceleration(float &ax, float &ay, float &az, float &linearaccuracy);
-
-  //Gets the fused orientation, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
-  //params: float &yaw, float &pitch, float &roll, float &accuracyDegrees
-  void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
-
-  //If 3 sensors are working, get the median value, filters out outliers. 
-  //If only 2 sensors are working, return the value with best accuracy
-  //If only one sensor is working, return that value
-  //IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
-  //Used inside of getFusedLinearAcceleration and getFusedOrientation
-  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
-  float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
-
-
-
-  //The temperature probe sensor
-  Adafruit_MAX31865 temperatureProbe;
-  
-  //The pressure sensor
-  MS5607 altimeter;
-  
-  //The IMUs, there are 3 IMUs
-  BNO080 imu1;
-  BNO080 imu2;
-  BNO080 imu3;
-
-  //unsigned long lastVelocityUpdateTime;
-  
-  //float lastYaw = 0.0;
-  //float lastPitch = 0.0;
-  //float lastRoll = 0.0;
-  
-  unsigned long lastVelocityUpdateTime;
-  unsigned long lastPositionUpdateTime;
-
-  float vx, vy, vz;
-  float px, py, pz;
-  
-
-  float lastYaw, lastPitch, lastRoll;
-  
-  
 
 };
