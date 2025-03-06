@@ -29,11 +29,8 @@ Sensors::Sensors()
 {
 }
 
-SensorStatus Sensors::begin()
+SensorStatus Sensors::begin(SensorStatus status)
 {
-  Wire1.begin();
-  Wire2.begin();
-  SensorStatus status = {false, false, false, false, false};
   if (!status.imu1)
     status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
@@ -79,14 +76,14 @@ void Sensors::enableReportsForIMU(BNO080* imu, uint16_t interval)
   imu->enableGyro(interval);  // rad/s
 }
 
-void Sensors::collectIMUData()
+bool Sensors::collectIMUData()
 {
-  fetchDataFromIMU(&imu1, &imu1Data);
-  fetchDataFromIMU(&imu2, &imu2Data);
-  fetchDataFromIMU(&imu3, &imu3Data);
+  return fetchDataFromIMU(&imu1, &imu1Data) &&
+         fetchDataFromIMU(&imu2, &imu2Data) &&
+         fetchDataFromIMU(&imu3, &imu3Data);
 }
 
-void Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
+bool Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
 {
   if (imu->hasReset()) {
     enableReportsForIMU(imu, interval);
@@ -105,12 +102,9 @@ void Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
     data->rollOrientation = imu->getRoll() * 180.0 / PI;
     data->orientationAccuracy = imu->getQuatRadianAccuracy() * 180.0 / PI;
     data->rotationAccuracy = imu->getQuatAccuracy();
-  }/*
-  else {
-    data->linearAccuracy = -1; //if sensor get unplugged, set accuracy to -1
-    data->orientationAccuracy = -1.0;  
-    data->rotationAccuracy = -1;
-  }*/
+    return true;
+  }
+  return false;
 }
 /*
 

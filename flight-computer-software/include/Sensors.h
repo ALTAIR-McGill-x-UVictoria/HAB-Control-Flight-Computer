@@ -76,7 +76,9 @@ public:
   Sensors();
 
   //Initializes the sensors
-  SensorStatus begin();
+  //params: SensorStatus status
+  //returns: SensorStatus
+  SensorStatus begin(SensorStatus status);
 
   //Gets the temperature in degrees Celsius
   //returns: float temperature
@@ -96,9 +98,9 @@ public:
   //params: BNO080* imu, uint16_t interval
   void enableReportsForIMU(BNO080* imu, uint16_t interval=50);
   
-  void collectIMUData();
+  bool collectIMUData();
 
-  void fetchDataFromIMU(BNO080* imu, IMUData* data);
+  bool fetchDataFromIMU(BNO080* imu, IMUData* data);
   
   //Gets the fused linear acceleration, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
   //params: float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration, byte &linearAccuracy
