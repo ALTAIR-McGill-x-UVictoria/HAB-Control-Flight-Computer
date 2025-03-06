@@ -15,15 +15,17 @@ enum State {
     DESCENT
 };
 
-bool initialization_status;
-char telemetry_status;
-char battery_status;
-char altimeter_status;
-char temperature_status;
-char imu_status[3];
-char gps_status;
+bool initialized;           // Initialization status flag
+bool aborted;               // Mission abortion status flag
+int lastTime;               // Used for timeouts and delays
+char telemetry_status;      // Telemetry status flag
+char gps_status;            // GPS status flag
+char battery_status;        // Battery status flag
+char altimeter_status;      // Altimeter status flag
+char temperature_status;    // Temperature status flag
+char imu_status[3];         // IMUs status flag
 
-StateMachine<10, 20> flight_fsm;
+StateMachine<10, 14> flight_fsm;
 int telemetry_thread_id = -1;
 int data_thread_id = -1;
 
@@ -67,7 +69,12 @@ void fault_do() {
 
 void termination_entry() {
     // Print status
-    // Stop threads if they're running
+    stop_all_threads();
+}
+
+void ready_entry() {
+    // Print status
+    start_all_threads();
 }
 
 void ready_do() {
@@ -94,12 +101,69 @@ void descent_do() {
     // Compute if reached touchdown
 }
 
+bool is_initialized() {
+    return initialized;
+}
+
+bool has_failed() {
+    // Print error message
+    // Check all states for error
+    return false;
+}
+
+bool has_telemetry() {
+    // Check if telemetry and gps is available
+    return telemetry_status > 0 && gps_status > 0;
+}
+
+bool has_battery() {
+    // Check if battery is available
+    return battery_status > 0;
+}
 
 void telemetry_thread() {
     while(true) {
         // Read telemetry data
         // Send telemetry data
     }
+}
+
+bool has_sensors() {
+    // Check if the minimum number of sensors are available
+    // Give a warning if non critical sensors are missing
+    // char available_imus = imu_status[0] > 0 + imu_status[1] > 0 + imu_status[2] > 0;
+    return true;
+}
+
+bool is_ascendeding() {
+    // Check if the HAB has ascended to the desired altitude
+    return false;
+}
+
+bool can_stabilize() {
+    // Check if the HAB has reached the desired altitude
+    // Check if the HAB is ready to stabilize
+    return false;
+}
+
+bool is_aborted() {
+    // Check if the HAB has aborted
+    return aborted;
+}
+
+bool stabilization_timeout() {
+    // Check if the stabilization has timed out
+    return false;
+}
+
+bool has_landed() {
+    // Check if the HAB has landed
+    return false;
+}
+
+bool has_fault_timeout() {
+    // Check if fault has timed out
+    return false;
 }
 
 void data_collection_thread() {
@@ -126,10 +190,6 @@ void start_all_threads() {
     data_thread_id = threads.addThread(data_collection_thread);
 }
 
-bool sensor_check_to_ready() {
-    char available_imus = imu_status[0] > 0 + imu_status[1] > 0 + imu_status[2] > 0;
-}
-
 void setup() {
     Serial.begin(115200);
 
@@ -140,7 +200,7 @@ void setup() {
     flight_fsm.addState(SENSOR_CHECK, sensor_check_entry, nullptr, nullptr);
     flight_fsm.addState(FAULT, fault_entry, fault_do), nullptr;
     flight_fsm.addState(TERMINATION, termination_entry, nullptr);
-    flight_fsm.addState(READY, nullptr, ready_do, nullptr);
+    flight_fsm.addState(READY, ready_entry, ready_do, nullptr);
     flight_fsm.addState(ASCENT, nullptr, ascent_do, nullptr);
     flight_fsm.addState(STABILIZATION, nullptr, stabilization_do, nullptr);
     flight_fsm.addState(DESCENT, descent_entry, descent_do, nullptr);
@@ -148,7 +208,23 @@ void setup() {
     flight_fsm.setInitialState(INITIALIZATION);
 
     // Add transitions
-    flight_fsm.addTransition(SENSOR_CHECK, READY, sensor_check_to_ready);
+    flight_fsm.addTransition(INITIALIZATION, TELEMETRY_CHECK, is_initialized);
+    flight_fsm.addTransition(INITIALIZATION, FAULT, has_failed);
+    flight_fsm.addTransition(TELEMETRY_CHECK, BATTERY_CHECK, has_telemetry);
+    flight_fsm.addTransition(TELEMETRY_CHECK, FAULT, has_failed);
+    flight_fsm.addTransition(BATTERY_CHECK, SENSOR_CHECK, has_battery);
+    flight_fsm.addTransition(BATTERY_CHECK, FAULT, has_failed);
+    flight_fsm.addTransition(SENSOR_CHECK, READY, has_sensors);
+    flight_fsm.addTransition(SENSOR_CHECK, FAULT, has_failed);
+    flight_fsm.addTransition(READY, ASCENT, is_ascendeding);
+    flight_fsm.addTransition(ASCENT, STABILIZATION, can_stabilize);
+    flight_fsm.addTransition(ASCENT, DESCENT, is_aborted);
+    flight_fsm.addTransition(STABILIZATION, DESCENT, stabilization_timeout);
+    flight_fsm.addTransition(STABILIZATION, DESCENT, is_aborted);
+    flight_fsm.addTransition(DESCENT, TERMINATION, has_landed);
+    flight_fsm.addTransition(FAULT, TERMINATION, has_fault_timeout);
+
+    lastTime = millis();
 }
 
 void loop() {
