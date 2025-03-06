@@ -60,7 +60,7 @@ public:
   BNO080 imu1;
   BNO080 imu2;
   BNO080 imu3;
-  
+
   IMUData imu1Data;
   IMUData imu2Data;
   IMUData imu3Data;

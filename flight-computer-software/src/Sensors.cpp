@@ -54,36 +54,54 @@ float Sensors::getAltitude()
 
 void Sensors::enableIMUReports(uint16_t interval)
 {
+  enableReportsForIMU(&imu1, interval);
+  enableReportsForIMU(&imu2, interval);
+  enableReportsForIMU(&imu3, interval);
+}
+
+void Sensors::enableReportsForIMU(BNO080* imu, uint16_t interval)
+{
   this->interval = interval;
-  imu1.enableLinearAccelerometer(interval); // m/s^2 no gravity
-  imu1.enableRotationVector(interval);      // quat or yawOrientation/pitchOrientation/rollOrientation rad
-  imu1.enableGyro(interval);                // rad/s
+  imu->enableLinearAccelerometer(interval);  // m/s^2 no gravity
+  imu->enableGyro(interval);  // rad/s
+  imu->enableRotationVector(interval);  // quat or yawOrientation/pitchOrientation/rollOrientation rad
+
 }
 
 bool Sensors::collectIMUData()
 {
-  if (imu1.hasReset())
-  {
-    enableIMUReports(interval);
+  bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
+  bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
+  bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
+  
+  if (fetchedIMU1 || fetchedIMU2 || fetchedIMU3) {
+    return true;
+  }
+  return false;
+}
+
+bool Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
+{
+  if (imu->hasReset()) {
+    enableReportsForIMU(imu, interval);
     Serial.println(" ------------------ BNO085 has reset. ------------------ ");
     Serial.print(F(" Reason: "));
-    Serial.println(imu1.resetReason());
+    Serial.println(imu->resetReason());
   }
-  if (imu1.dataAvailable())
-  {
-    imu1Data.xLinearAcceleration = imu1.getLinAccelX();
-    imu1Data.yLinearAcceleration = imu1.getLinAccelY();
-    imu1Data.zLinearAcceleration = imu1.getLinAccelZ();
-    imu1Data.linearAccuracy = imu1.getLinAccelAccuracy();
-    imu1Data.xAngularVelocity = imu1.getGyroX() * 180 / PI;
-    imu1Data.yAngularVelocity = imu1.getGyroY() * 180 / PI;
-    imu1Data.zAngularVelocity = imu1.getGyroZ() * 180 / PI;
-    imu1Data.gyroAccuracy = imu1.getGyroAccuracy();
-    imu1Data.yawOrientation = imu1.getYaw() * 180 / PI;
-    imu1Data.pitchOrientation = imu1.getPitch() * 180 / PI;
-    imu1Data.rollOrientation = imu1.getRoll() * 180 / PI;
-    imu1Data.orientationAccuracy = imu1.getQuatRadianAccuracy() * 180 / PI;
-    imu1Data.rotationAccuracy = imu1.getQuatAccuracy();
+  if (imu->dataAvailable()) {
+    data->xLinearAcceleration = imu->getLinAccelX();
+    data->yLinearAcceleration = imu->getLinAccelY();
+    data->zLinearAcceleration = imu->getLinAccelZ();
+    data->linearAccuracy = imu->getLinAccelAccuracy();
+    data->xAngularVelocity = imu->getGyroX() * 180.0 / PI;
+    data->yAngularVelocity = imu->getGyroY() * 180.0 / PI;
+    data->zAngularVelocity = imu->getGyroZ() * 180.0 / PI;
+    data->gyroAccuracy = imu->getGyroAccuracy();
+    data->yawOrientation = imu->getYaw() * 180.0 / PI;
+    data->pitchOrientation = imu->getPitch() * 180.0 / PI;
+    data->rollOrientation = imu->getRoll() * 180.0 / PI;
+    data->orientationAccuracy = imu->getQuatRadianAccuracy() * 180.0 / PI;
+    data->rotationAccuracy = imu->getQuatAccuracy();
     return true;
   }
   return false;
