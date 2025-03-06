@@ -18,25 +18,10 @@ library to provide the following data :
   - Pressure
 */
 
-
 #include "Sensors.h"
-
-Sensors::Sensors()
-    : lastVelocityUpdateTime(0),
-      lastPositionUpdateTime(0),
-      vx(0), vy(0), vz(0),
-      px(0), py(0), pz(0)
-{
-}
 
 SensorStatus Sensors::begin(SensorStatus status)
 {
-  Wire1.begin();
-  Wire2.begin();
-  Wire1.flush();
-  Wire2.flush();
-  Wire1.setClock(100000);
-  Wire2.setClock(100000);
   if (!status.imu1)
     status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
@@ -69,95 +54,41 @@ float Sensors::getAltitude()
 
 void Sensors::enableIMUReports(uint16_t interval)
 {
-  enableReportsForIMU(&imu1, interval);
-  enableReportsForIMU(&imu2, interval);
-  enableReportsForIMU(&imu3, interval);
-}
-
-void Sensors::enableReportsForIMU(BNO080* imu, uint16_t interval)
-{
   this->interval = interval;
-  imu->enableLinearAccelerometer(interval);  // m/s^2 no gravity
-  imu->enableGyro(interval);  // rad/s
-  imu->enableRotationVector(interval);  // quat or yawOrientation/pitchOrientation/rollOrientation rad
-
+  imu1.enableLinearAccelerometer(interval); // m/s^2 no gravity
+  imu1.enableRotationVector(interval);      // quat or yawOrientation/pitchOrientation/rollOrientation rad
+  imu1.enableGyro(interval);                // rad/s
 }
 
 bool Sensors::collectIMUData()
 {
-  bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
-  bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
-  bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
-  
-  if (fetchedIMU1 && fetchedIMU2 && fetchedIMU3) {
-    return true;
-  }
-  return false;
-}
-
-bool Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
-{
-  if (imu->hasReset()) {
-    enableReportsForIMU(imu, interval);
+  if (imu1.hasReset())
+  {
+    enableIMUReports(interval);
     Serial.println(" ------------------ BNO085 has reset. ------------------ ");
     Serial.print(F(" Reason: "));
-    Serial.println(imu->resetReason());
+    Serial.println(imu1.resetReason());
   }
-  if (imu->dataAvailable()) {
-    data->xLinearAcceleration = imu->getLinAccelX();
-    data->yLinearAcceleration = imu->getLinAccelY();
-    data->zLinearAcceleration = imu->getLinAccelZ();
-    data->linearAccuracy = imu->getLinAccelAccuracy();
-    data->xAngularVelocity = imu->getGyroX() * 180.0 / PI;
-    data->yAngularVelocity = imu->getGyroY() * 180.0 / PI;
-    data->zAngularVelocity = imu->getGyroZ() * 180.0 / PI;
-    data->gyroAccuracy = imu->getGyroAccuracy();
-    data->yawOrientation = imu->getYaw() * 180.0 / PI;
-    data->pitchOrientation = imu->getPitch() * 180.0 / PI;
-    data->rollOrientation = imu->getRoll() * 180.0 / PI;
-    data->orientationAccuracy = imu->getQuatRadianAccuracy() * 180.0 / PI;
-    data->rotationAccuracy = imu->getQuatAccuracy();
+  if (imu1.dataAvailable())
+  {
+    imu1Data.xLinearAcceleration = imu1.getLinAccelX();
+    imu1Data.yLinearAcceleration = imu1.getLinAccelY();
+    imu1Data.zLinearAcceleration = imu1.getLinAccelZ();
+    imu1Data.linearAccuracy = imu1.getLinAccelAccuracy();
+    imu1Data.xAngularVelocity = imu1.getGyroX() * 180 / PI;
+    imu1Data.yAngularVelocity = imu1.getGyroY() * 180 / PI;
+    imu1Data.zAngularVelocity = imu1.getGyroZ() * 180 / PI;
+    imu1Data.gyroAccuracy = imu1.getGyroAccuracy();
+    imu1Data.yawOrientation = imu1.getYaw() * 180 / PI;
+    imu1Data.pitchOrientation = imu1.getPitch() * 180 / PI;
+    imu1Data.rollOrientation = imu1.getRoll() * 180 / PI;
+    imu1Data.orientationAccuracy = imu1.getQuatRadianAccuracy() * 180 / PI;
+    imu1Data.rotationAccuracy = imu1.getQuatAccuracy();
     return true;
   }
   return false;
-  
-  /*
-  switch (imu->getReadings())
-  {
-     case SENSOR_REPORTID_LINEAR_ACCELERATION: {
-      data->xLinearAcceleration = imu->getLinAccelX();
-      data->yLinearAcceleration = imu->getLinAccelY();
-      data->zLinearAcceleration = imu->getLinAccelZ();
-      data->linearAccuracy = imu->getLinAccelAccuracy();
-      return true;
-     }
-     break;
-
-     case SENSOR_REPORTID_ROTATION_VECTOR: {
-      data->xAngularVelocity = imu->getGyroX() * 180.0 / PI;
-      data->yAngularVelocity = imu->getGyroY() * 180.0 / PI;
-      data->zAngularVelocity = imu->getGyroZ() * 180.0 / PI;
-      data->gyroAccuracy = imu->getGyroAccuracy();
-      return true;
-     }
-     break;
-
-     case SENSOR_REPORTID_GYROSCOPE: {
-      data->yawOrientation = imu->getYaw() * 180.0 / PI;
-      data->pitchOrientation = imu->getPitch() * 180.0 / PI;
-      data->rollOrientation = imu->getRoll() * 180.0 / PI;
-      data->orientationAccuracy = imu->getQuatRadianAccuracy() * 180.0 / PI;
-      data->rotationAccuracy = imu->getQuatAccuracy();
-      return true;
-     }
-     break;
-
-     default: // No new data
-        break;
-  }
-  return false;
-  */
 }
+
 /*
 
 // use median filter to get the most accurate data out of IMU1, IMU2, IMU3
@@ -192,21 +123,21 @@ void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVe
 
 void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation, float &accuracyDegrees, byte &rotationAccuracy)
 {
-  
+
   std::vector<float> yawValues = {imu1Data.yawOrientation, imu2Data.yawOrientation, imu3Data.yawOrientation};
   std::vector<float> pitchValues = {imu1Data.pitchOrientation, imu2Data.pitchOrientation, imu3Data.pitchOrientation};
   std::vector<float> rollValues = {imu1Data.rollOrientation, imu2Data.rollOrientation, imu3Data.rollOrientation};
   std::vector<byte> accuracyValues = {imu1Data.rotationAccuracy, imu2Data.rotationAccuracy, imu3Data.rotationAccuracy};
   std::vector<float> orientationAccuracy = {imu1Data.orientationAccuracy, imu2Data.orientationAccuracy, imu3Data.orientationAccuracy};
 
-  
+
   // call sensorFusion function
   yawOrientation = sensorFusion(yawValues, accuracyValues, orientationAccuracy);
   pitchOrientation = sensorFusion(pitchValues, accuracyValues, orientationAccuracy);
   rollOrientation = sensorFusion(rollValues, accuracyValues, orientationAccuracy);
   accuracyDegrees = 0; //not sure what to do with this yet
   rotationAccuracy = 0; //not sure what to do with this yet
-  
+
 }
 
 // get the median value of a vector, filters out outliers
@@ -233,7 +164,7 @@ float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accurac
 
         }
     }
-  
+
   if (new_values.size() == 3)
     {
       std::sort(new_values.begin(), new_values.end()); //if there are 3 values, then return the median value, this will ignore outliers
@@ -247,8 +178,8 @@ float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accurac
       if (orientationAccuracy.empty()) //use accuracyIsDegrees to determine type of accuracy (1 if is empty, 0 if not)
         {
           return new_accuracy[0] > new_accuracy[1] ? new_values[0] : new_values[1]; //if accuracy is linear (0-3) want highest accuracy
-        }    
-      else 
+        }
+      else
         {
           return new_orientationAccuracy[0] < new_orientationAccuracy[1] ? new_values[0] : new_values[1]; //if in degrees want lowest accuracy
         }

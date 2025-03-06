@@ -29,8 +29,8 @@ library to provide the following data :
 #define RNOMINAL 100.0
 
 struct SensorStatus {
-  bool temperature;
   bool pressure;
+  bool temperature;
   bool imu1;
   bool imu2;
   bool imu3;
@@ -57,12 +57,13 @@ public:
   MS5607 altimeter = MS5607(0x76); // Set I2C address to 0x76 for MS5607
   
   //The IMUs, there are 3 IMUs
-  BNO080 imu1 = BNO080();
-  BNO080 imu2 = BNO080();
-  BNO080 imu3 = BNO080();
-  IMUData imu1Data = IMUData();
-  IMUData imu2Data = IMUData();
-  IMUData imu3Data = IMUData();
+  BNO080 imu1;
+  BNO080 imu2;
+  BNO080 imu3;
+  
+  IMUData imu1Data;
+  IMUData imu2Data;
+  IMUData imu3Data;
   
   uint16_t interval = 50;
 
@@ -72,9 +73,6 @@ public:
   float vx, vy, vz;
   float px, py, pz;
   
-  //Constructor
-  Sensors();
-
   //Initializes the sensors
   //params: SensorStatus status
   //returns: SensorStatus
