@@ -35,8 +35,8 @@ SensorStatus Sensors::begin(SensorStatus status)
   Wire2.begin();
   Wire1.flush();
   Wire2.flush();
-  Wire1.setClock(10000);
-  Wire2.setClock(10000);
+  Wire1.setClock(100000);
+  Wire2.setClock(100000);
   if (!status.imu1)
     status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
@@ -78,8 +78,9 @@ void Sensors::enableReportsForIMU(BNO080* imu, uint16_t interval)
 {
   this->interval = interval;
   imu->enableLinearAccelerometer(interval);  // m/s^2 no gravity
-  imu->enableRotationVector(interval);  // quat or yawOrientation/pitchOrientation/rollOrientation rad
   imu->enableGyro(interval);  // rad/s
+  imu->enableRotationVector(interval);  // quat or yawOrientation/pitchOrientation/rollOrientation rad
+
 }
 
 bool Sensors::collectIMUData()
@@ -119,6 +120,43 @@ bool Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
     return true;
   }
   return false;
+  
+  /*
+  switch (imu->getReadings())
+  {
+     case SENSOR_REPORTID_LINEAR_ACCELERATION: {
+      data->xLinearAcceleration = imu->getLinAccelX();
+      data->yLinearAcceleration = imu->getLinAccelY();
+      data->zLinearAcceleration = imu->getLinAccelZ();
+      data->linearAccuracy = imu->getLinAccelAccuracy();
+      return true;
+     }
+     break;
+
+     case SENSOR_REPORTID_ROTATION_VECTOR: {
+      data->xAngularVelocity = imu->getGyroX() * 180.0 / PI;
+      data->yAngularVelocity = imu->getGyroY() * 180.0 / PI;
+      data->zAngularVelocity = imu->getGyroZ() * 180.0 / PI;
+      data->gyroAccuracy = imu->getGyroAccuracy();
+      return true;
+     }
+     break;
+
+     case SENSOR_REPORTID_GYROSCOPE: {
+      data->yawOrientation = imu->getYaw() * 180.0 / PI;
+      data->pitchOrientation = imu->getPitch() * 180.0 / PI;
+      data->rollOrientation = imu->getRoll() * 180.0 / PI;
+      data->orientationAccuracy = imu->getQuatRadianAccuracy() * 180.0 / PI;
+      data->rotationAccuracy = imu->getQuatAccuracy();
+      return true;
+     }
+     break;
+
+     default: // No new data
+        break;
+  }
+  return false;
+  */
 }
 /*
 

@@ -104,6 +104,5 @@ void loop() {
     Serial.println("Set new relative position to (0.0, 0.0, 0.0)");
   */
     Serial.println("--------------------------");
-    delay(100);
   }
 }
