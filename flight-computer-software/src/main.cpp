@@ -25,7 +25,7 @@ char altimeter_status;      // Altimeter status flag
 char temperature_status;    // Temperature status flag
 char imu_status[3];         // IMUs status flag
 
-StateMachine<10, 14> flight_fsm;
+StateMachine<10, 15> flight_fsm;
 int telemetry_thread_id = -1;
 int data_thread_id = -1;
 
