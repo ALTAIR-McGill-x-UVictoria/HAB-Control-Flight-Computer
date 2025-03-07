@@ -361,3 +361,17 @@ float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accurac
     return -1.0;
   }
 }
+
+bool Sensors::isAscending() {
+    float currentAltitude = getAltitude();
+    bool ascending = (currentAltitude - previousAltitude > 0.1); // 10cm threshold
+    previousAltitude = currentAltitude;
+    return ascending;
+}
+
+bool Sensors::isDescending() {
+    float currentAltitude = getAltitude();
+    bool descending = (previousAltitude - currentAltitude > 0.1); // 10cm threshold
+    previousAltitude = currentAltitude;
+    return descending;
+}
