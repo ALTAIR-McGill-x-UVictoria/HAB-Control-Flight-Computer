@@ -18,6 +18,7 @@ library to provide the following data :
   - Pressure
 */
 
+#include <TeensyThreads.h>
 #include <Adafruit_MAX31865.h>
 #include <MS5607.h>
 #include <SparkFun_BNO080_Arduino_Library.h>
@@ -28,107 +29,133 @@ library to provide the following data :
 // The 'nominal' 0-degrees-C resistance of the sensor: 100.0 for PT100
 #define RNOMINAL 100.0
 
-// Simple data-only struct to hold initialization status
-struct SensorStatus {
-  bool temperature;
+struct SensorStatus
+{
   bool pressure;
+  bool temperature;
   bool imu1;
   bool imu2;
   bool imu3;
 };
 
+struct SensorDataIMU
+{
+  volatile float xLinearAcceleration, yLinearAcceleration, zLinearAcceleration;
+  volatile byte linearAccuracy;
+  volatile float xAngularVelocity, yAngularVelocity, zAngularVelocity;
+  volatile byte gyroAccuracy;
+  volatile float yawOrientation, pitchOrientation, rollOrientation, orientationAccuracy;
+  volatile byte rotationAccuracy;
+};
+
 class Sensors
 {
 public:
-  //Constructor
-  Sensors();
+  SensorDataIMU imu1Data;
+  SensorDataIMU imu2Data;
+  SensorDataIMU imu3Data;
+  volatile float temperature, pressure, altitude;
 
-  //Initializes the sensors
-  // Modified to return initialization status
-  SensorStatus begin();
-  
-  //Enables reports for the IMU
-  //params: BNO080 imu, uint16_t interval
-  void enableReports(BNO080 imu, uint16_t interval = 10);
-  
-  //Gets the temperature in degrees Celsius
-  //returns: float temperature
-  float getTemperature(); 
-  
-  //Gets the pressure in hPa
-  //returns: float pressure 
+  volatile float xRelativeVelocity, yRelativeVelocity, zRelativeVelocity;
+  volatile float xRelativePosition, yRelativePosition, zRelativePosition;
+
+  // Initializes the sensors
+  // params: SensorStatus status
+  // returns: SensorStatus
+  SensorStatus begin(SensorStatus status);
+
+  void enableReports(uint16_t interval = 50);
+
+  void startDataCollection();
+
+  void stopDataCollection();
+
+  float getTemperature();
+
   float getPressure();
 
-  //Gets the altitude
-  //returns: float altitude
   float getAltitude();
 
-  //Gets the linear acceleration
-  //If data is not available from a sensor, set the accuracy to -1
-  //params: BNO080 imu, float &x, float &y, float &z, float &accuracy
-  void getLinearAcceleration(BNO080 imu, float &x, float &y, float &z, float &accuracy);
+  // Gets the fused linear acceleration, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  // params: float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration
+  void getFusedLinearAcceleration(float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration);
 
-  //Gets the orientation
-  //If data is not available from a sensor, set the accuracy to -1
-  //params: BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees
-  void getOrientation(BNO080 imu, float &yaw, float &pitch, float &roll, float &accuracyDegrees);
-  
-  //Gets the relative velocity
-  //params: BNO080 imu, float &vx, float &vy, float &vz
-  void getRelativeVelocity(BNO080 imu, float &vx, float &vy, float &vz);
+  // Gets the fused angular velocity, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  // params: float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity
+  void getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity);
 
-  //Gets the relative position
-  //params: BNO080 imu, float &px, float &py, float &pz
-  void getRelativePosition(BNO080 imu, float &px, float &py, float &pz);
-  
-  //Sets the relative velocity
-  //params: float vx, float vy, float vz
+  // Gets the fused orientation, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
+  // params: float &yawOrientation, float &pitchOrientation, float &rollOrientation
+  void getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation);
+
+  // Gets the relative velocity
+  // params: float &vx, float &vy, float &vz
+  void getRelativeVelocity(float &vx, float &vy, float &vz);
+
+  // Gets the relative position
+  // params: float &px, float &py, float &pz
+  void getRelativePosition(float &px, float &py, float &pz);
+
+  // Sets the relative velocity
+  // params: float vx, float vy, float vz
   void setRelativeVelocity(float vx, float vy, float vz);
 
-  //Sets the relative position
-  //params: float px, float py, float pz
+  // Sets the relative position
+  // params: float px, float py, float pz
   void setRelativePosition(float px, float py, float pz);
 
-  //Output in form x, y, z, in radians per second
-  //params: BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity
-  void getAngularVelocity(BNO080 imu, float &xangularvelocity, float &yangularvelocity, float &zangularvelocity);
+private:
+  // The temperature probe sensor
+  Adafruit_MAX31865 temperatureProbe = Adafruit_MAX31865(10, 11, 12, 13); // software SPI: CS, DI, DO, CLK
 
-  //Gets the fused linear acceleration, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
-  //params: float &ax, float &ay, float &az, float &linearaccuracy
-  void getFusedLinearAcceleration(float &ax, float &ay, float &az, float &linearaccuracy);
+  // The pressure sensor
+  MS5607 altimeter = MS5607(0x76); // Set I2C address to 0x76 for MS5607
 
-  //Gets the fused orientation, uses median filter to get the most accurate data out of IMU1, IMU2, IMU3
-  //params: float &yaw, float &pitch, float &roll, float &accuracyDegrees
-  void getFusedOrientation(float &yaw, float &pitch, float &roll, float &accuracyDegrees);
-
-  // Add new methods for altitude change detection
-  bool isAscending();    // Checks if altitude is increasing
-  bool isDescending();   // Checks if altitude is decreasing
-
-  //The temperature probe sensor
-  Adafruit_MAX31865 temperatureProbe;
-  
-  //The pressure sensor
-  MS5607 altimeter;
-  
-  //The IMUs, there are 3 IMUs
+  // The IMUs, there are 3 IMUs
   BNO080 imu1;
   BNO080 imu2;
   BNO080 imu3;
 
-  unsigned long lastVelocityUpdateTime;
-  unsigned long lastPositionUpdateTime;
-  float vx, vy, vz;
-  float px, py, pz;
+  uint16_t interval = 50;
 
-private:
-  //If 3 sensors are working, get the median value, filters out outliers. 
-  //If only 2 sensors are working, return the value with best accuracy
-  //If only one sensor is working, return that value
-  //IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
-  //Used inside of getFusedLinearAcceleration and getFusedOrientation
-  //params: std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees
-  float sensorFusion(std::vector<float> values, std::vector<float> accuracy, bool accuracyIsDegrees);
+  int altimeterSensorThreadId;
+  int temperatureSensorThreadId;
+  int imuSensorThreadId;
+  int computeRelativeLinearThreadId;
+  volatile bool running;
 
-  float previousAltitude;  // Added to track altitude changes
+  unsigned long lastImu1UpdateTime;
+  unsigned long lastImu2UpdateTime;
+  unsigned long lastImu3UpdateTime;
+  unsigned long lastAltimeterUpdateTime;
+  unsigned long lastRelativeLinearUpdateTime;
+
+  // Enables reports for the IMU
+  // params: BNO080* imu, uint16_t interval
+  void enableReportsForIMU(BNO080 *imu, uint16_t interval = 50);
+
+  bool fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data);
+  
+  void invalidateIMUData(unsigned long lastImuUpdateTime,BNO080* imu, SensorDataIMU* data, unsigned long timeout=1000);
+
+  // Thread function wrappers for TeensyThreads
+  static void altimeterSensorThreadWrapper(void *sensorObj);
+  static void temperatureSensorThreadWrapper(void *sensorObj);
+  static void imuSensorThreadWrapper(void *sensorObj);
+  static void computeRelativeLinearThreadWrapper(void *sensorObj);
+
+  // Actual thread implementations
+  void altimeterSensorThreadImpl();
+  void temperatureSensorThreadImpl();
+  void imuSensorThreadImpl();
+  void computeRelativeLinearThreadImpl();
+
+  // If 3 sensors are working, get the median value, filters out outliers.
+  // If only 2 sensors are working, return the value with best accuracy
+  // If only one sensor is working, return that value
+  // IF NO SENSORS ARE WORKING, ADD THIS TO THE CODE
+  // Used inside of getFusedLinearAcceleration and getFusedOrientation
+  // params: std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy={}
+  // returns: float
+  float sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy = {});
 };
