@@ -1,6 +1,11 @@
 #include <Arduino.h>
 #include <TeensyThreads.h>
 #include "StateMachine.h"
+#include "Sensors.h"
+#include <SD.h>
+#include <SPI.h>
+
+Sensors sensors;
 
 enum State {
     INITIALIZATION,
@@ -24,6 +29,10 @@ char battery_status;        // Battery status flag
 char altimeter_status;      // Altimeter status flag
 char temperature_status;    // Temperature status flag
 char imu_status[3];         // IMUs status flag
+float altitude;             // Altitude of the HAB
+float initialAltitude;     // Initial altitude of the HAB
+const int chipSelect = 10;  // SD card chip select pin
+float stabilizationStartTime;    // Time to stabilize the HAB
 
 StateMachine<10, 15> flight_fsm;
 int telemetry_thread_id = -1;
@@ -31,9 +40,35 @@ int data_thread_id = -1;
 
 void initialization_entry() {
     // Init data storage
+    Serial.begin(9600);
+    while (!Serial) {
+    ; // wait for serial port to connect.
+    }
+
+    Serial.print("Initializing SD card...");
+    // see if the card is present and can be initialized:
+    if (!SD.begin(chipSelect)) {
+        Serial.println("Card failed, or not present");
+        while (1) {
+        // No SD card, so don't do anything more - stay stuck here
+        }
+    }
+    Serial.println("card initialized.");
+    
+    
+    
     // Init libs and models
-    // Activation beep
+    //TODO
+    
+    
+    // Activation beep- PWM tone on pin33 of teensy
+    tone(33, 700, 500); //tone(uint8_t pin, uint16_t frequency, uint32_t duration)
+    delay(500);
+    noTone(33); //stop playing a note on pin 33
+    
+    
 }
+
 
 void telemetry_check_entry() {
     // Init spi telemetry api
@@ -45,18 +80,54 @@ void telemetry_check_entry() {
 void battery_check_entry() {
     // Verify battery (using api)
     // Print status
-}
+
+}  
 
 void sensor_check_entry() {
     // Init sensors (altimeter, imu, temperature)
+    
     // Verify altimeter sensor
     // Verify temperature sensor
     // Verify imu sensors
     // Print status
+    Serial.begin(115200);
+    delay(100);
+    SensorStatus status = {false, false, false, false, false};
+    while (true)
+    {
+    status = sensors.begin(status);
+    if (!status.imu1)
+      Serial.println("Failed to initialize IMU 1.");
+    if (!status.imu2)
+      Serial.println("Failed to initialize IMU 2.");
+    if (!status.imu3)
+      Serial.println("Failed to initialize IMU 3.");
+    if (!status.pressure)
+      Serial.println("Failed to initialize Altimeter.");
+    if (!status.temperature)
+      Serial.println("Failed to initialize Temperature Probe.");
+    if (status.imu1 && status.imu2 && status.imu3 && status.pressure && status.temperature)
+    {
+      Serial.println("Successfully initialized all sensors.");
+      
+      break;
+    }
+    else
+    {
+      Serial.println("Retrying sensor initialization.");
+      delay(100);
+    }
+  }
+  sensors.enableReports(20);
+  sensors.startDataCollection();
+  initialAltitude = sensors.getAltitude();
 }
 
 void fault_entry() {
+    //error needs to be shown on serial and sd card
     // Fault logging (maybe do that in the transition too for specific faults)
+
+
     // Stop all motors
     // Stop all sensors
     // Print status
@@ -64,7 +135,19 @@ void fault_entry() {
 
 void fault_do() {
     // Fault beep
+    tone(33, 1500, 500); //tone(uint8_t pin, uint16_t frequency, uint32_t duration)
+    delay(500);
+    noTone(33); //stop playing a note on pin 33
+    
     // Wait for timeout
+    int timeout = 2000; //CHANGE WHAT WE WANT TIMEOUT TO BE
+    while (millis() - lastTime < timeout) {
+        // Wait
+    }
+    // Abort mission
+    aborted = true;
+
+
 }
 
 void termination_entry() {
@@ -79,6 +162,7 @@ void ready_entry() {
 
 void ready_do() {
     // Compute altitude ascended using pressure sensor
+    altitude = sensors.getAltitude();
 }
 
 void ascent_do() {
@@ -86,6 +170,11 @@ void ascent_do() {
 }
 
 void stabilization_do() {
+    stabilizationStartTime = millis(); //get current time at start of stabilization
+    
+    //set stability
+   
+
     // Control algorithm
     // Output to motors
     // Status log
@@ -98,7 +187,15 @@ void descent_entry() {
 
 void descent_do() {
     // Status log
+    //TODO
+
     // Compute if reached touchdown
+
+    altitude = sensors.getAltitude();
+    if (altitude <= initialAltitude + 10) {
+        // Touchdown
+        //TODO
+    }
 }
 
 bool is_initialized() {
@@ -132,17 +229,32 @@ bool has_sensors() {
     // Check if the minimum number of sensors are available
     // Give a warning if non critical sensors are missing
     // char available_imus = imu_status[0] > 0 + imu_status[1] > 0 + imu_status[2] > 0;
-    return true;
+    
+    if (altimeter_status > 0 && temperature_status > 0 && imu_status[0] > 0 && imu_status[1] > 0 && imu_status[2] > 0) {
+        return true;
+    } else if (altimeter_status > 0 && temperature_status < 0 && imu_status[0] > 0 && imu_status[1] > 0 && imu_status[2] > 0){ //temp sensor is the only noncritical sensor
+        //give a warning if temp sensor is missing
+        Serial.println("Temperature sensor is missing. This is a non-critical sensor. All other sensors are working");
+        return true;
+    } else return false;
 }
 
 bool is_ascendeding() {
     // Check if the HAB has ascended to the desired altitude
+    altitude = sensors.getAltitude();
+    if (altitude >= 20000) {
+        return true; // 20km altitude
+    }
     return false;
 }
 
 bool can_stabilize() {
     // Check if the HAB has reached the desired altitude
     // Check if the HAB is ready to stabilize
+    if (altitude >= 20000) {
+        return true; // 20km altitude
+    }
+
     return false;
 }
 
@@ -153,11 +265,21 @@ bool is_aborted() {
 
 bool stabilization_timeout() {
     // Check if the stabilization has timed out
+    int timeout = 30000; // 30 seconds
+    
+    if (millis() - stabilizationStartTime > timeout) {
+        return true;
+    }
     return false;
 }
 
 bool has_landed() {
     // Check if the HAB has landed
+    altitude = sensors.getAltitude();
+    if (altitude <= initialAltitude + 10) {
+        // Touchdown
+        //TODO
+    }
     return false;
 }
 
@@ -166,13 +288,38 @@ bool has_fault_timeout() {
     return false;
 }
 
-void data_collection_thread() {
-    while(true) {
-        // data_collection_do();
-        // threads.delay(200);
-    }
+void data_collection_thread() { //this is from the Datalogging example under SD in Examples
+    
+  // make a string for assembling the data to log:
+  String dataString = "";
+
+  
+  //logQueue.Dequeue; //call function here to get data from queue
+
+  // open the file.
+  File dataFile = SD.open("datalog.txt", FILE_WRITE);
+
+  // if the file is available, write to it:
+  if (dataFile) {
+    dataFile.println(dataString);
+    dataFile.close();
+    // print to the serial port too:
+    Serial.println(dataString);
+  } else {
+    // if the file isn't open, pop up an error:
+    Serial.println("error opening datalog.txt");
+  }
+  delay(100); // run at a reasonable not-too-fast speed
+  
+  
+  
+  while(true) {
+    // data_collection_do();
+    // threads.delay(200);
 }
 
+}
+    
 void stop_all_threads() {
     if (telemetry_thread_id != -1) {
         threads.kill(telemetry_thread_id);
