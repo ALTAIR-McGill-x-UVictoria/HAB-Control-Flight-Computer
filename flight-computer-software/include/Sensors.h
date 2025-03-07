@@ -124,15 +124,18 @@ private:
   int computeRelativeLinearThreadId;
   volatile bool running;
 
+  unsigned long lastImu1UpdateTime;
+  unsigned long lastImu2UpdateTime;
+  unsigned long lastImu3UpdateTime;
   unsigned long lastRelativeLinearUpdateTime;
 
   // Enables reports for the IMU
   // params: BNO080* imu, uint16_t interval
   void enableReportsForIMU(BNO080 *imu, uint16_t interval = 50);
 
-  bool collectIMUData();
-
   bool fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data);
+  
+  void invalidateIMUData(unsigned long lastImuUpdateTime,BNO080* imu, SensorDataIMU* data, unsigned long timeout=500);
 
   // Thread function wrappers for TeensyThreads
   static void altimeterSensorThreadWrapper(void *sensorObj);

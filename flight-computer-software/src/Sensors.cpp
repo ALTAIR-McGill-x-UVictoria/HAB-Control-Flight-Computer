@@ -80,17 +80,16 @@ bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
   return false;
 }
 
-bool Sensors::collectIMUData()
+void Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data, unsigned long timeout=500)
 {
-  bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
-  bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
-  bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
-
-  if (fetchedIMU1 || fetchedIMU2 || fetchedIMU3)
+  if (millis() - lastImuUpdateTime > timeout)
   {
-    return true;
+    imu->softReset();
+    data->linearAccuracy = -1;
+    data->gyroAccuracy = -1;
+    data->rotationAccuracy = -1;
+    data->orientationAccuracy = -1;
   }
-  return false;
 }
 
 void Sensors::altimeterSensorThreadWrapper(void *sensorObj)
@@ -143,7 +142,22 @@ void Sensors::imuSensorThreadImpl()
   while (running)
   {
     // Collect IMU data
-    collectIMUData();
+    bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
+    bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
+    bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
+    // Update last update time
+    if (fetchedIMU1)
+      lastImu1UpdateTime = millis();
+    else
+      invalidateIMUData(lastImu1UpdateTime, &imu1, &imu1Data);
+    if (fetchedIMU2)
+      lastImu2UpdateTime = millis();
+    else
+      invalidateIMUData(lastImu2UpdateTime, &imu2, &imu2Data);
+    if (fetchedIMU3)
+      lastImu3UpdateTime = millis();
+    else
+      invalidateIMUData(lastImu3UpdateTime, &imu3, &imu3Data);
     threads.yield();
   }
 }
