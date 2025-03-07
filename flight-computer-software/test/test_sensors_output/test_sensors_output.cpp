@@ -36,7 +36,7 @@ void setup()
       delay(100);
     }
   }
-  sensors.enableReports(50);
+  sensors.enableReports(20);
   sensors.startDataCollection();
 }
 

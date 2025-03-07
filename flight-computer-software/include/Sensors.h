@@ -64,7 +64,7 @@ public:
   // returns: SensorStatus
   SensorStatus begin(SensorStatus status);
 
-  void enableReports(uint16_t interval = 50);
+  void enableReports(uint16_t interval=50);
 
   void startDataCollection();
 
@@ -116,7 +116,7 @@ private:
   BNO080 imu2;
   BNO080 imu3;
 
-  uint16_t interval = 50;
+  uint16_t interval;
 
   int altimeterSensorThreadId;
   int temperatureSensorThreadId;
@@ -132,7 +132,7 @@ private:
 
   // Enables reports for the IMU
   // params: BNO080* imu, uint16_t interval
-  void enableReportsForIMU(BNO080 *imu, uint16_t interval = 50);
+  void enableReportsForIMU(BNO080 *imu, uint16_t interval);
 
   bool fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data);
   
