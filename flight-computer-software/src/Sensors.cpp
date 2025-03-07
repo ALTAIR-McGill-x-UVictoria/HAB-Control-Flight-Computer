@@ -59,9 +59,6 @@ bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
   if (imu->hasReset())
   {
     enableReportsForIMU(imu, interval);
-    Serial.println(" ------------------ BNO085 has reset. ------------------ ");
-    Serial.print(F(" Reason: "));
-    Serial.println(imu->resetReason());
   }
   if (imu->dataAvailable())
   {
