@@ -22,6 +22,8 @@ library to provide the following data :
 
 SensorStatus Sensors::begin(SensorStatus status)
 {
+  Wire1.begin();
+  Wire2.begin();
   if (!status.imu1)
     status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
@@ -35,60 +37,34 @@ SensorStatus Sensors::begin(SensorStatus status)
   return status;
 }
 
-float Sensors::getTemperature()
+void Sensors::enableReportsForIMU(BNO080 *imu, uint16_t interval)
 {
-  return temperatureProbe.temperature(RNOMINAL, RREF);
+  imu->enableLinearAccelerometer(interval); // m/s^2 no gravity
+  imu->enableGyro(interval);                // rad/s
+  imu->enableRotationVector(interval);      // quat or yawOrientation/pitchOrientation/rollOrientation rad
 }
 
-float Sensors::getPressure()
+void Sensors::enableReports(uint16_t interval)
 {
-  altimeter.readDigitalValue();
-  return altimeter.getPressure();
-}
-
-float Sensors::getAltitude()
-{
-  altimeter.readDigitalValue();
-  return altimeter.getAltitude();
-}
-
-void Sensors::enableIMUReports(uint16_t interval)
-{
+  this->interval = interval;
+  Wire1.setClock(400000);
+  Wire2.setClock(400000);
   enableReportsForIMU(&imu1, interval);
   enableReportsForIMU(&imu2, interval);
   enableReportsForIMU(&imu3, interval);
 }
 
-void Sensors::enableReportsForIMU(BNO080* imu, uint16_t interval)
+bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
 {
-  this->interval = interval;
-  imu->enableLinearAccelerometer(interval);  // m/s^2 no gravity
-  imu->enableGyro(interval);  // rad/s
-  imu->enableRotationVector(interval);  // quat or yawOrientation/pitchOrientation/rollOrientation rad
-
-}
-
-bool Sensors::collectIMUData()
-{
-  bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
-  bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
-  bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
-  
-  if (fetchedIMU1 || fetchedIMU2 || fetchedIMU3) {
-    return true;
-  }
-  return false;
-}
-
-bool Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
-{
-  if (imu->hasReset()) {
+  if (imu->hasReset())
+  {
     enableReportsForIMU(imu, interval);
     Serial.println(" ------------------ BNO085 has reset. ------------------ ");
     Serial.print(F(" Reason: "));
     Serial.println(imu->resetReason());
   }
-  if (imu->dataAvailable()) {
+  if (imu->dataAvailable())
+  {
     data->xLinearAcceleration = imu->getLinAccelX();
     data->yLinearAcceleration = imu->getLinAccelY();
     data->zLinearAcceleration = imu->getLinAccelZ();
@@ -107,12 +83,134 @@ bool Sensors::fetchDataFromIMU(BNO080* imu, IMUData* data)
   return false;
 }
 
-/*
+bool Sensors::collectIMUData()
+{
+  bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
+  bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
+  bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
+
+  if (fetchedIMU1 || fetchedIMU2 || fetchedIMU3)
+  {
+    return true;
+  }
+  return false;
+}
+
+void Sensors::altimeterSensorThreadWrapper(void *sensorObj)
+{
+  ((Sensors *)sensorObj)->altimeterSensorThreadImpl();
+}
+
+void Sensors::temperatureSensorThreadWrapper(void *sensorObj)
+{
+  ((Sensors *)sensorObj)->temperatureSensorThreadImpl();
+}
+
+void Sensors::imuSensorThreadWrapper(void *sensorObj)
+{
+  ((Sensors *)sensorObj)->imuSensorThreadImpl();
+}
+
+void Sensors::computeRelativeLinearThreadWrapper(void *sensorObj)
+{
+  ((Sensors *)sensorObj)->computeRelativeLinearThreadImpl();
+}
+
+void Sensors::altimeterSensorThreadImpl()
+{
+  while (running)
+  {
+    // Get pressure
+    altimeter.readDigitalValue();
+    pressure = altimeter.getPressure();
+    // Get altitude
+    altitude = altimeter.getAltitude();
+    // Wait before next reading
+    threads.delay(interval);
+  }
+}
+
+void Sensors::temperatureSensorThreadImpl()
+{
+  while (running)
+  {
+    // Get temperature
+    temperature = temperatureProbe.temperature(RNOMINAL, RREF);
+    // Wait before next reading
+    threads.delay(interval);
+  }
+}
+
+void Sensors::imuSensorThreadImpl()
+{
+  while (running)
+  {
+    // Collect IMU data
+    collectIMUData();
+    threads.yield();
+  }
+}
+
+void Sensors::computeRelativeLinearThreadImpl()
+{
+  while (running)
+  {
+    float ax = 0.0, ay = 0.0, az = 0.0;
+    getFusedLinearAcceleration(ax, ay, az);
+    unsigned long currentTime = millis();
+    float dt = (currentTime - lastRelativeLinearUpdateTime) / 1000.0; // Convert to seconds
+    lastRelativeLinearUpdateTime = currentTime;
+    // Integrate acceleration to get velocity
+    xRelativeVelocity = xRelativeVelocity + ax * dt;
+    yRelativeVelocity = yRelativeVelocity + ay * dt;
+    zRelativeVelocity = zRelativeVelocity + az * dt;
+    // Integrate velocity to get position
+    xRelativePosition = xRelativePosition + xRelativeVelocity * dt;
+    yRelativePosition = yRelativePosition + yRelativeVelocity * dt;
+    zRelativePosition = zRelativePosition + zRelativeVelocity * dt;
+    // Wait before next reading
+    threads.delay(interval);
+  }
+}
+
+void Sensors::startDataCollection()
+{
+  running = true;
+  altimeterSensorThreadId = threads.addThread(altimeterSensorThreadWrapper, this);
+  temperatureSensorThreadId = threads.addThread(temperatureSensorThreadWrapper, this);
+  imuSensorThreadId = threads.addThread(imuSensorThreadWrapper, this);
+  computeRelativeLinearThreadId = threads.addThread(computeRelativeLinearThreadWrapper, this);
+}
+
+void Sensors::stopDataCollection()
+{
+  running = false;
+  threads.delay(100); // Give threads time to finish
+  threads.kill(altimeterSensorThreadId);
+  threads.kill(temperatureSensorThreadId);
+  threads.kill(imuSensorThreadId);
+  threads.kill(computeRelativeLinearThreadId);
+}
+
+float Sensors::getTemperature()
+{
+  return this->temperature;
+}
+
+float Sensors::getPressure()
+{
+  return this->pressure;
+}
+
+float Sensors::getAltitude()
+{
+  return this->altitude;
+}
 
 // use median filter to get the most accurate data out of IMU1, IMU2, IMU3
-void Sensors::getFusedLinearAcceleration(float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration, byte &linAccuracy)
+void Sensors::getFusedLinearAcceleration(float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration)
 {
-  //first get info from the struct
+  // first get info from the struct
   std::vector<float> axValues = {imu1Data.xLinearAcceleration, imu2Data.xLinearAcceleration, imu3Data.xLinearAcceleration};
   std::vector<float> ayValues = {imu1Data.yLinearAcceleration, imu2Data.yLinearAcceleration, imu3Data.yLinearAcceleration};
   std::vector<float> azValues = {imu1Data.zLinearAcceleration, imu2Data.zLinearAcceleration, imu3Data.zLinearAcceleration};
@@ -122,10 +220,9 @@ void Sensors::getFusedLinearAcceleration(float &xLinearAcceleration, float &yLin
   xLinearAcceleration = sensorFusion(axValues, accuracyValues);
   yLinearAcceleration = sensorFusion(ayValues, accuracyValues);
   zLinearAcceleration = sensorFusion(azValues, accuracyValues);
-  linAccuracy = 0; //not sure what to do with this yet
 }
 
-void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity, byte &gyroAccuracy)
+void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity)
 {
   std::vector<float> gxValues = {imu1Data.xAngularVelocity, imu2Data.xAngularVelocity, imu3Data.xAngularVelocity};
   std::vector<float> gyValues = {imu1Data.yAngularVelocity, imu2Data.yAngularVelocity, imu3Data.yAngularVelocity};
@@ -136,10 +233,9 @@ void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVe
   xAngularVelocity = sensorFusion(gxValues, accuracyvalues);
   yAngularVelocity = sensorFusion(gyValues, accuracyvalues);
   zAngularVelocity = sensorFusion(gzValues, accuracyvalues);
-  gyroAccuracy = 0; //not sure what to do with this yet
 }
 
-void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation, float &accuracyDegrees, byte &rotationAccuracy)
+void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation)
 {
 
   std::vector<float> yawValues = {imu1Data.yawOrientation, imu2Data.yawOrientation, imu3Data.yawOrientation};
@@ -148,116 +244,91 @@ void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation
   std::vector<byte> accuracyValues = {imu1Data.rotationAccuracy, imu2Data.rotationAccuracy, imu3Data.rotationAccuracy};
   std::vector<float> orientationAccuracy = {imu1Data.orientationAccuracy, imu2Data.orientationAccuracy, imu3Data.orientationAccuracy};
 
-
   // call sensorFusion function
   yawOrientation = sensorFusion(yawValues, accuracyValues, orientationAccuracy);
   pitchOrientation = sensorFusion(pitchValues, accuracyValues, orientationAccuracy);
   rollOrientation = sensorFusion(rollValues, accuracyValues, orientationAccuracy);
-  accuracyDegrees = 0; //not sure what to do with this yet
-  rotationAccuracy = 0; //not sure what to do with this yet
-
 }
-
-// get the median value of a vector, filters out outliers
-//use bool accuracyDegrees to determine type of accuracy (linear or orientation)
-float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy)
-{
-  //want to ignore any values that have a negative accuracy
-  //check if there is a negative value in the accuracy vector
-  //want to check if there is a negative value in accuracy vector, if there is, remove corresponding value from values vector
-  std::vector<float> new_values;  //create new vectors to store values and accuracy that are not negative
-  std::vector<float> new_accuracy;
-  std::vector<float> new_orientationAccuracy;
-  int valuesize = values.size();
-  for (int i = 0; i < valuesize; i++)
-    {
-      if (accuracy[i] >= 0) //if accuracy is positive or 0
-        {
-          new_values.push_back(values[i]);
-          new_accuracy.push_back(accuracy[i]);
-          if (!orientationAccuracy.empty())
-            {
-              new_orientationAccuracy.push_back(orientationAccuracy[i]);
-            }
-
-        }
-    }
-
-  if (new_values.size() == 3)
-    {
-      std::sort(new_values.begin(), new_values.end()); //if there are 3 values, then return the median value, this will ignore outliers
-      return new_values[1]; //get middle value
-    }
-  else if (new_values.size() == 2)
-    {
-      //if only 2 are working, want to return the value with best accuracy
-      // note for linear accuracy (0-3), the higher the value the better
-      //for orientation accuracy (degrees), the lower the value the better
-      if (orientationAccuracy.empty()) //use accuracyIsDegrees to determine type of accuracy (1 if is empty, 0 if not)
-        {
-          return new_accuracy[0] > new_accuracy[1] ? new_values[0] : new_values[1]; //if accuracy is linear (0-3) want highest accuracy
-        }
-      else
-        {
-          return new_orientationAccuracy[0] < new_orientationAccuracy[1] ? new_values[0] : new_values[1]; //if in degrees want lowest accuracy
-        }
-    }
-    else if (new_values.size() == 1)
-    {
-      return new_values[0]; //if only 1 sensor is working, then return that value
-    }
-  else
-    {
-      //add here error if no sensors are working
-      Serial.println("No sensors are working.");
-      return -1.0;
-    }
-}
-
 
 void Sensors::getRelativeVelocity(float &vx, float &vy, float &vz)
 {
-  float ax = 0.0, ay = 0.0, az = 0.0;
-
-  unsigned long currentTime = millis();
-  float dt = (currentTime - lastVelocityUpdateTime) / 1000.0; // Convert to seconds
-  lastVelocityUpdateTime = currentTime;
-
-  // Integrate acceleration to get velocity
-  vx = this->vx + ax * dt;
-  vy = this->vy + ay * dt;
-  vz = this->vz + az * dt;
-
-  setRelativeVelocity(vx, vy, vz);
+  vx = xRelativeVelocity;
+  vy = yRelativeVelocity;
+  vz = zRelativeVelocity;
 }
+
 void Sensors::getRelativePosition(float &px, float &py, float &pz)
 {
-  float vx = 0.0, vy = 0.0, vz = 0.0;
-  getRelativeVelocity(vx, vy, vz);
-
-  unsigned long currentTime = millis();
-  float dt = (currentTime - lastPositionUpdateTime) / 1000.0; // Convert to seconds
-  lastPositionUpdateTime = currentTime;
-
-  // Integrate velocity to get position
-  px = this->px + vx * dt;
-  py = this->py + vy * dt;
-  pz = this->pz + vz * dt;
-
-  setRelativePosition(px, py, pz);
+  px = xRelativePosition;
+  py = yRelativePosition;
+  pz = zRelativePosition;
 }
 
 void Sensors::setRelativeVelocity(float vx, float vy, float vz)
 {
-  this->vx = vx;
-  this->vy = vy;
-  this->vz = vz;
+  xRelativeVelocity = vx;
+  yRelativeVelocity = vy;
+  zRelativeVelocity = vz;
 }
 
 void Sensors::setRelativePosition(float px, float py, float pz)
 {
-  this->px = px;
-  this->py = py;
-  this->pz = pz;
+  xRelativePosition = px;
+  yRelativePosition = py;
+  zRelativePosition = pz;
 }
-*/
+
+// get the median value of a vector, filters out outliers
+// use bool accuracyDegrees to determine type of accuracy (linear or orientation)
+float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy)
+{
+  // want to ignore any values that have a negative accuracy
+  // check if there is a negative value in the accuracy vector
+  // want to check if there is a negative value in accuracy vector, if there is, remove corresponding value from values vector
+  std::vector<float> new_values; // create new vectors to store values and accuracy that are not negative
+  std::vector<float> new_accuracy;
+  std::vector<float> new_orientationAccuracy;
+  int valuesize = values.size();
+  for (int i = 0; i < valuesize; i++)
+  {
+    if (accuracy[i] >= 0) // if accuracy is positive or 0
+    {
+      new_values.push_back(values[i]);
+      new_accuracy.push_back(accuracy[i]);
+      if (!orientationAccuracy.empty())
+      {
+        new_orientationAccuracy.push_back(orientationAccuracy[i]);
+      }
+    }
+  }
+
+  if (new_values.size() == 3)
+  {
+    std::sort(new_values.begin(), new_values.end()); // if there are 3 values, then return the median value, this will ignore outliers
+    return new_values[1];                            // get middle value
+  }
+  else if (new_values.size() == 2)
+  {
+    // if only 2 are working, want to return the value with best accuracy
+    //  note for linear accuracy (0-3), the higher the value the better
+    // for orientation accuracy (degrees), the lower the value the better
+    if (orientationAccuracy.empty()) // use accuracyIsDegrees to determine type of accuracy (1 if is empty, 0 if not)
+    {
+      return new_accuracy[0] > new_accuracy[1] ? new_values[0] : new_values[1]; // if accuracy is linear (0-3) want highest accuracy
+    }
+    else
+    {
+      return new_orientationAccuracy[0] < new_orientationAccuracy[1] ? new_values[0] : new_values[1]; // if in degrees want lowest accuracy
+    }
+  }
+  else if (new_values.size() == 1)
+  {
+    return new_values[0]; // if only 1 sensor is working, then return that value
+  }
+  else
+  {
+    // add here error if no sensors are working
+    Serial.println("No sensors are working.");
+    return -1.0;
+  }
+}
