@@ -80,11 +80,12 @@ bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
   return false;
 }
 
-void Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data, unsigned long timeout=500)
+void Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data, unsigned long timeout)
 {
   if (millis() - lastImuUpdateTime > timeout)
   {
     imu->softReset();
+    enableReportsForIMU(imu, interval);
     data->linearAccuracy = -1;
     data->gyroAccuracy = -1;
     data->rotationAccuracy = -1;
@@ -114,13 +115,27 @@ void Sensors::computeRelativeLinearThreadWrapper(void *sensorObj)
 
 void Sensors::altimeterSensorThreadImpl()
 {
+  lastAltimeterUpdateTime = millis(); // Initialize last update time
+  unsigned long altimeterTimeout = 500;         // Timeout for sensor data
   while (running)
   {
     // Get pressure
-    altimeter.readDigitalValue();
-    pressure = altimeter.getPressure();
-    // Get altitude
-    altitude = altimeter.getAltitude();
+    bool fetchedAltimeter = altimeter.readDigitalValue();
+    if (fetchedAltimeter)
+    {
+      lastAltimeterUpdateTime = millis();
+      pressure = altimeter.getPressure();
+      // Get altitude
+      altitude = altimeter.getAltitude();
+    } else
+    {
+      if (millis() - lastAltimeterUpdateTime > altimeterTimeout)
+      {
+        altimeter.begin(); // attempt to restart the sensor
+        altitude = -10000000.0; // set to -1.0 if no data is fetched
+      }
+    }
+
     // Wait before next reading
     threads.delay(interval);
   }
@@ -139,6 +154,9 @@ void Sensors::temperatureSensorThreadImpl()
 
 void Sensors::imuSensorThreadImpl()
 {
+  lastImu1UpdateTime = millis();
+  lastImu2UpdateTime = millis();
+  lastImu3UpdateTime = millis();
   while (running)
   {
     // Collect IMU data

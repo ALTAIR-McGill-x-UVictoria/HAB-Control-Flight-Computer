@@ -127,6 +127,7 @@ private:
   unsigned long lastImu1UpdateTime;
   unsigned long lastImu2UpdateTime;
   unsigned long lastImu3UpdateTime;
+  unsigned long lastAltimeterUpdateTime;
   unsigned long lastRelativeLinearUpdateTime;
 
   // Enables reports for the IMU
@@ -135,7 +136,7 @@ private:
 
   bool fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data);
   
-  void invalidateIMUData(unsigned long lastImuUpdateTime,BNO080* imu, SensorDataIMU* data, unsigned long timeout=500);
+  void invalidateIMUData(unsigned long lastImuUpdateTime,BNO080* imu, SensorDataIMU* data, unsigned long timeout=1000);
 
   // Thread function wrappers for TeensyThreads
   static void altimeterSensorThreadWrapper(void *sensorObj);
