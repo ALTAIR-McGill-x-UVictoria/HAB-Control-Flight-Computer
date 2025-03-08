@@ -9,7 +9,7 @@ void processReceivedTelemetryPacket(const TelemetryPacket& packet) {
     // Implementation for processing received telemetry data
     // Print out received data in console
     delay(1000);
-    Serial.println("Received Telemetry Data:");
+    Serial.println("Processed Telemetry Data:");
     // Serial.println("Received Telemetry Data:");
     // Serial.print("Timestamp: " + String(packet.timestamp) + " ms");
     // Serial.print("Pressure: " + String(packet.pressure) + " Pa");
@@ -33,17 +33,18 @@ void setup() {
 
     // Initialize SPI in slave mode
     SPI.begin();
-    delay(5000);  // Delay to allow master to initialize
+    // Delay to allow master to initialize
+    delay(5000); 
 }
 
-void handleHandshake() {
-    uint8_t receivedToken = SPI.transfer(COMM_ACK_SUCCESS);
-    
+bool handleHandshake(const uint8_t receivedToken) {
     // Check if handshake token is correct
     if (receivedToken == 0xAB) {
         SPI.transfer(COMM_ACK_SUCCESS);
+        return true;
     } else {
         SPI.transfer(COMM_ACK_FAILURE);
+        return false;
     }
 }
 
@@ -91,14 +92,14 @@ bool receiveTelemetryPacket() {
 void loop() {
     // Handle incoming SPI communication
     if (digitalRead(cs) == LOW) {
-        // Detect if this is a handshake or data transfer
-        uint8_t firstByte = SPI.transfer(0x00);
-        
-        if (firstByte == 0xAB) {
-            handleHandshake();
-        } else {
-            // Assume it's a data transfer
+        // Initialize a dummy byte to send to allow for the reading of the master value
+        uint8_t receivedToken = SPI.transfer(0x00);
+        bool handshakeConfirmed = handleHandshake(receivedToken);
+        if (handshakeConfirmed) {
+            Serial.println("Handshake successful, communication established.");
             receiveTelemetryPacket();
+        } else {
+            Serial.println("Handshake failed, communication not established.");
         }
     }
 
@@ -111,5 +112,10 @@ void loop() {
         // Clean up
         delete[] receivedPacket.statusMsg;
         dataReceived = false;
+    }
+
+    while(true) {
+        Serial.println("Test completed for handshake and test packet reception.");
+        delay(100000);
     }
 }

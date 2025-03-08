@@ -13,31 +13,36 @@ void setup() {
     // Initialize SPI
     SPI.begin();
     SPI.setClockDivider(SPI_CLOCK_DIV16);  // 1 MHz clock
-    SPI.setBitOrder(MSBFIRST);
+    // Teensy 4.1 is ARM-based, thus uses little-endian byte order
+    SPI.setBitOrder(LSBFIRST);
     SPI.setDataMode(SPI_MODE0);
+    delay(5000);
 }
 
 bool performHandshake() {
     Serial.println("Initializing handshake...");
     const uint8_t handshakeToken = 0xAB;
-    uint8_t response = 0;
 
     // Assert Chip Select
     digitalWrite(cs, LOW);
     
     // Send handshake token
+    Serial.print("Sending handshake token: " + String(handshakeToken));
     SPI.transfer(handshakeToken);
     
     // Read response from slave
-    response = SPI.transfer(0x00);
+    const uint8_t response = SPI.transfer(0x00);
     Serial.print("Received response: " + String(response));
     
     // Deassert Chip Select
     digitalWrite(cs, HIGH);
 
     // Check if slave responded correctly
+    Serial.print("Assessing response...");
     if (response == COMM_ACK_SUCCESS) {
         Serial.print("Handshake successful, communication established.");
+    } else if (response == COMM_ACK_FAILURE) {
+        Serial.print("Handshake failed, communication not established.");
     }
     return (response == COMM_ACK_SUCCESS);
 }
@@ -90,5 +95,11 @@ void loop() {
         populateTelemetryPacket(packet);
         // Send packet over SPI
         sendTelemetryPacket(packet);
+    }
+
+    while(true) {
+        Serial.println("Test completed for handshake and test packet transmission.");
+        // Adding delay to prevent spamming the serial monitor
+        delay(100000);
     }
 }
