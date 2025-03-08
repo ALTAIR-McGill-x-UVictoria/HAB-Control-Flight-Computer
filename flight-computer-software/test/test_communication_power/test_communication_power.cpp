@@ -94,6 +94,7 @@ void loop() {
     if (digitalRead(cs) == LOW) {
         // Initialize a dummy byte to send to allow for the reading of the master value
         uint8_t receivedToken = SPI.transfer(0x00);
+        Serial.println("Received token: " + String(receivedToken));
         bool handshakeConfirmed = handleHandshake(receivedToken);
         if (handshakeConfirmed) {
             Serial.println("Handshake successful, communication established.");
