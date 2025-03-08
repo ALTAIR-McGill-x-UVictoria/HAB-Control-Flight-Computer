@@ -29,11 +29,13 @@ bool performHandshake() {
     // Send handshake token
     Serial.print("Sending handshake token: " + String(handshakeToken));
     const uint8_t firstResponse = SPI.transfer(handshakeToken);
+    delay(500);
     
     // Read first response from slave
     if (firstResponse == 0x00) {
         Serial.print("Received first response from slave, awaiting success confirmation.");
         const uint8_t secondResponse = SPI.transfer(0x0A);
+        delay(500);
         if (secondResponse == COMM_ACK_SUCCESS) {
             Serial.print("Handshake successful, communication established.");
             return true;

@@ -83,9 +83,11 @@ void loop() {
     if (digitalRead(cs) == LOW) {
         // Initialize a dummy byte to send to allow for the reading of the master value
         const uint8_t receivedFirstToken = SPI.transfer(0x00);
+        delay(500);
         if (receivedFirstToken == 0xAB) {
             Serial.println("Received first token: " + String(receivedFirstToken));
             const uint8_t receivedSecondToken = SPI.transfer(COMM_ACK_SUCCESS);
+            delay(500);
             if (receivedSecondToken == 0x0A) {
                 Serial.println("Handshake successful, communication established.");
             }
