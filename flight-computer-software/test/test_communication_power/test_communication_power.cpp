@@ -37,17 +37,6 @@ void setup() {
     delay(5000); 
 }
 
-bool handleHandshake(const uint8_t receivedToken) {
-    // Check if handshake token is correct
-    if (receivedToken == 0xAB) {
-        SPI.transfer(COMM_ACK_SUCCESS);
-        return true;
-    } else {
-        SPI.transfer(COMM_ACK_FAILURE);
-        return false;
-    }
-}
-
 bool receiveTelemetryPacket() {
     uint8_t buffer[sizeof(TelemetryPacket) + MAX_STATUS_MSG_LENGTH];
     size_t bufferIndex = 0;
@@ -93,14 +82,16 @@ void loop() {
     // Handle incoming SPI communication
     if (digitalRead(cs) == LOW) {
         // Initialize a dummy byte to send to allow for the reading of the master value
-        uint8_t receivedToken = SPI.transfer(0x00);
-        Serial.println("Received token: " + String(receivedToken));
-        bool handshakeConfirmed = handleHandshake(receivedToken);
-        if (handshakeConfirmed) {
-            Serial.println("Handshake successful, communication established.");
-            receiveTelemetryPacket();
+        const uint8_t receivedFirstToken = SPI.transfer(0x00);
+        if (receivedFirstToken == 0xAB) {
+            Serial.println("Received first token: " + String(receivedFirstToken));
+            const uint8_t receivedSecondToken = SPI.transfer(COMM_ACK_SUCCESS);
+            if (receivedSecondToken == 0x0A) {
+                Serial.println("Handshake successful, communication established.");
+            }
         } else {
-            Serial.println("Handshake failed, communication not established.");
+            Serial.println("Handshake failed, communication not established.\n");
+            Serial.println("Received unexpected first token: " + String(receivedFirstToken));
         }
     }
 

@@ -33,20 +33,14 @@ bool performHandshake() {
     // Read first response from slave
     if (firstResponse == 0x00) {
         Serial.print("Received first response from slave, awaiting success confirmation.");
-        const uint8_t secondResponse = SPI.transfer(0x00);
+        const uint8_t secondResponse = SPI.transfer(0x0A);
         if (secondResponse == COMM_ACK_SUCCESS) {
-            Serial.print("Received success confirmation from slave.");
+            Serial.print("Handshake successful, communication established.");
             return true;
-        } else if (secondResponse == COMM_ACK_FAILURE) {
-            Serial.print("Received failure confirmation from slave.");
-            return false;
         } else {
             Serial.print("Received unknown second response from slave:" + String(secondResponse));
             return false;
         }
-    } else {
-        Serial.print("Received unknown first response from slave:" + String(firstResponse));
-        return false;
     }
     // Deassert Chip Select
     digitalWrite(cs, HIGH);
@@ -94,7 +88,7 @@ bool sendTelemetryPacket(const TelemetryPacket& packet) {
 
 void loop() {
     // Example usage in main loop
-    if (performHandshake()  == true) {
+    if (performHandshake() == true) {
         TelemetryPacket packet;
         // Populate packet with test sensor data from a pre-made function
         populateTelemetryPacket(packet);
