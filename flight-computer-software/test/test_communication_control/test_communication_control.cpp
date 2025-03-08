@@ -28,23 +28,28 @@ bool performHandshake() {
     
     // Send handshake token
     Serial.print("Sending handshake token: " + String(handshakeToken));
-    SPI.transfer(handshakeToken);
+    const uint8_t firstResponse = SPI.transfer(handshakeToken);
     
-    // Read response from slave
-    const uint8_t response = SPI.transfer(0x00);
-    Serial.print("Received response: " + String(response));
-    
+    // Read first response from slave
+    if (firstResponse == 0x00) {
+        Serial.print("Received first response from slave, awaiting success confirmation.");
+        const uint8_t secondResponse = SPI.transfer(0x00);
+        if (secondResponse == COMM_ACK_SUCCESS) {
+            Serial.print("Received success confirmation from slave.");
+            return true;
+        } else if (secondResponse == COMM_ACK_FAILURE) {
+            Serial.print("Received failure confirmation from slave.");
+            return false;
+        } else {
+            Serial.print("Received unknown second response from slave:" + String(secondResponse));
+            return false;
+        }
+    } else {
+        Serial.print("Received unknown first response from slave:" + String(firstResponse));
+        return false;
+    }
     // Deassert Chip Select
     digitalWrite(cs, HIGH);
-
-    // Check if slave responded correctly
-    Serial.print("Assessing response...");
-    if (response == COMM_ACK_SUCCESS) {
-        Serial.print("Handshake successful, communication established.");
-    } else if (response == COMM_ACK_FAILURE) {
-        Serial.print("Handshake failed, communication not established.");
-    }
-    return (response == COMM_ACK_SUCCESS);
 }
 
 bool sendTelemetryPacket(const TelemetryPacket& packet) {
@@ -89,12 +94,14 @@ bool sendTelemetryPacket(const TelemetryPacket& packet) {
 
 void loop() {
     // Example usage in main loop
-    if (performHandshake()) {
+    if (performHandshake()  == true) {
         TelemetryPacket packet;
         // Populate packet with test sensor data from a pre-made function
         populateTelemetryPacket(packet);
         // Send packet over SPI
         sendTelemetryPacket(packet);
+    } else {
+        Serial.println("Handshake failed, communication not established.");
     }
 
     while(true) {
