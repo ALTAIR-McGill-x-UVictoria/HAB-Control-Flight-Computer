@@ -11,7 +11,7 @@
 ************************/
 
 #define RxD Serial1
-#define TxD Serial2
+#define TxD Serial1
 
 #define baud 230400 //115200
 
@@ -49,7 +49,7 @@ void setup() {
     // Wait until the serial interfaces are active
     while (!Serial && millis() < 5000);  // Wait for Serial (USB) to become active
     Serial.println("Serial ports active:");
-    Serial.println("     Sending on Serial6 Tx, Receiving on Serial 7 Rx");
+    Serial.println("     Sending on Serial1 Tx, Receiving on Serial1 Rx");
 
     tx.dataIdx = 0;
     ClearSerialBuffers();

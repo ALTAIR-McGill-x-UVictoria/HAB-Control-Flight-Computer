@@ -4,12 +4,12 @@
 /*****************************
   Receive and Echo Back Code
 ******************************/
-// Teensy 1 TX1 → Teensy 2 RX1
-// Teensy 1 RX1 → Teensy 2 TX1
+// Teensy 1 TX1 (PIN 1) → Teensy 2 RX1 (PIN 0)
+// Teensy 1 RX1 (PIN 0) → Teensy 2 TX2 (PIN 1)
 // Teensy 1 GND → Teensy 2 GND
 
 #define RxD Serial1
-#define TxD Serial2
+#define TxD Serial1
 #pragma pack(push,1)
 
 /* Data Type to be sent received */
@@ -42,7 +42,7 @@ void setup() {
     // Wait until the serial interfaces are active
     while (!Serial && millis() < 5000);  // Wait for Serial (USB) to become active
     Serial.println("Serial ports active:");
-    Serial.println("     Receiving on Serial7 Rx, Sending on Serial 6 Tx");
+    Serial.println("     Receiving on Serial1 Rx, Sending on Serial1 Tx");
 
     ClearSerialBuffers();
 
