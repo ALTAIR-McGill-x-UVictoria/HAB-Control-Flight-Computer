@@ -8,8 +8,8 @@
 // Teensy 1 RX1 → Teensy 2 TX1
 // Teensy 1 GND → Teensy 2 GND
 
-#define RxD Serial7
-#define TxD Serial6
+#define RxD Serial1
+#define TxD Serial2
 #pragma pack(push,1)
 
 /* Data Type to be sent received */

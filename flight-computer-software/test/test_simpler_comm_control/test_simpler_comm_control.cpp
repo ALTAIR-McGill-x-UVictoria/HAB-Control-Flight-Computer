@@ -10,8 +10,8 @@
      Send and Receive Code
 ************************/
 
-#define RxD Serial7
-#define TxD Serial6
+#define RxD Serial1
+#define TxD Serial2
 
 #define baud 230400 //115200
 
