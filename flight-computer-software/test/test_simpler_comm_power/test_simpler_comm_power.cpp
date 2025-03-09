@@ -30,6 +30,7 @@ void setup() {
     // SPI1.setMISO(miso);
     // SPI1.setMOSI(mosi);
     // SPI1.setSCK(sck);
+    Serial.begin(115200);
     mySPI.begin();
     mySPI.onTransfer(myCB);
 }

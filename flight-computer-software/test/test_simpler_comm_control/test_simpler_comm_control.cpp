@@ -28,7 +28,6 @@ void setup() {
     Serial.begin(115200);
     // SPI.begin();
     SPI1.begin();
-    pinMode(cs, OUTPUT);
     digitalWrite(cs, HIGH);
     mySPI1234.begin();
 }
