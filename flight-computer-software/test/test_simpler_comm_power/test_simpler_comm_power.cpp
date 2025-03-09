@@ -85,11 +85,18 @@ void setup() {
     Serial.println("Receiver Board initialized");
 
     ClearSerialBuffers();
+    Serial.printf("Size of ControllerData: %d bytes\n", sizeof(ControllerData));
+
 }
 
 void loop() {
     // Check if we have enough data to receive a complete packet
     if (RxD.available() >= sizeof(rxData)) {
+
+        // Debugging statement 
+        Serial.printf("Available bytes: %d, Need: %d\n", RxD.available(), sizeof(rxData));
+        delay(1000);  // Print only once per second
+        
         // Turn on LED to indicate receiving
         digitalWriteFast(LED_BUILTIN, HIGH);
         

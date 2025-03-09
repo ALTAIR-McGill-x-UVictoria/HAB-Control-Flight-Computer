@@ -78,6 +78,8 @@ void setup() {
     txData.statusMsgLength = strlen(txData.statusMsg);
     
     ClearSerialBuffers();
+    Serial.printf("Size of ControllerData: %d bytes\n", sizeof(ControllerData));
+
     delay(1000);    // Allow sync time between Teensys
 }
 
