@@ -18,5 +18,6 @@ void loop() {
         uint8_t i = SPI.transfer(0x00);
         // Print the integer values
         Serial.println(i);
+        delay(500);
     }
 }
