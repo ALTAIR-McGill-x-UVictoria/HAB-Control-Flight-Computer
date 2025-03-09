@@ -2,7 +2,12 @@
 #include "SPI_communication.h"
 
 void setup() {
-    // Configure SPI pins
+    // Configure SP
+    // SPI Communication Pins
+    // const int cs = 0;     // Chip Select
+    // const int miso = 1;   // Master In Slave Out
+    // const int mosi = 26;  // Master Out Slave In
+    // const int sck = 27;   // Serial ClockI pins
     pinMode(cs, OUTPUT);
     pinMode(mosi, OUTPUT);
     pinMode(miso, INPUT);
@@ -23,4 +28,6 @@ void loop() {
         Serial.println(i);
         delay(500);
     }
+    digitalWrite(cs, HIGH);
+    SPI.endTransaction();
 }
