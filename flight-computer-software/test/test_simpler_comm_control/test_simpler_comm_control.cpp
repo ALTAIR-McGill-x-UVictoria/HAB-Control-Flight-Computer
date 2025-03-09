@@ -9,6 +9,9 @@
 #define TxD Serial1
 #define baud 230400
 
+// Define a packet header for reliable packet detection
+static const uint8_t PACKET_HEADER[] = {0xAA, 0xBB};
+
 // Status message buffer size
 #define MAX_STATUS_MSG_LENGTH 64
 
@@ -70,6 +73,7 @@ void setup() {
     Serial.println("Serial ports active:");
     Serial.println("     Sending on Serial1 Tx, Receiving on Serial1 Rx");
     Serial.println("Controller Board initialized");
+    Serial.printf("Size of ControllerData: %d bytes\n", sizeof(ControllerData));
 
     // Initialize data with default values
     txData.timestamp = 0;
@@ -78,8 +82,6 @@ void setup() {
     txData.statusMsgLength = strlen(txData.statusMsg);
     
     ClearSerialBuffers();
-    Serial.printf("Size of ControllerData: %d bytes\n", sizeof(ControllerData));
-
     delay(1000);    // Allow sync time between Teensys
 }
 
@@ -117,9 +119,10 @@ void loop() {
         size_t checksumOffset = sizeof(txData) - sizeof(txData.checksum);
         txData.checksum = calculateChecksum((uint8_t*)&txData, checksumOffset);
         
-        // Send the data packet
+        // Send the data packet with header
         digitalWriteFast(LED_BUILTIN, HIGH);
-        TxD.write((uint8_t*)&txData, sizeof(txData));
+        TxD.write(PACKET_HEADER, sizeof(PACKET_HEADER));  // Send header first
+        TxD.write((uint8_t*)&txData, sizeof(txData));     // Then send data
         TxD.flush();
         digitalWriteFast(LED_BUILTIN, LOW);
         
@@ -144,14 +147,35 @@ void loop() {
         // Wait for response
         receiveTimeout = 0;
         bool responseReceived = false;
+        bool headerFound = false;
+        uint8_t responseBuffer[sizeof(DeviceData)];
+        size_t bytesRead = 0;
         
         while (receiveTimeout < RECEIVE_TIMEOUT) {
-            if (RxD.available() >= sizeof(rxData)) {
-                // Read the response data
-                RxD.readBytes((uint8_t*)&rxData, sizeof(rxData));
-                responseReceived = true;
-                break;
+            // First look for the header
+            if (!headerFound && RxD.available() >= 2) {
+                uint8_t h1 = RxD.read();
+                uint8_t h2 = RxD.read();
+                
+                if (h1 == PACKET_HEADER[0] && h2 == PACKET_HEADER[1]) {
+                    headerFound = true;
+                    Serial.println("Response header found");
+                }
             }
+            
+            // After header is found, read the response data
+            if (headerFound) {
+                while (RxD.available() > 0 && bytesRead < sizeof(DeviceData)) {
+                    responseBuffer[bytesRead++] = RxD.read();
+                }
+                
+                if (bytesRead == sizeof(DeviceData)) {
+                    memcpy(&rxData, responseBuffer, sizeof(DeviceData));
+                    responseReceived = true;
+                    break;
+                }
+            }
+            
             delay(10);  // Small delay to prevent CPU hogging
         }
         
@@ -166,6 +190,12 @@ void loop() {
             Serial.println("==============================================================");
         } else {
             Serial.println("Timeout waiting for response data");
+            if (headerFound) {
+                Serial.printf("Header was found but only received %d of %d bytes\n", 
+                             bytesRead, sizeof(DeviceData));
+            } else {
+                Serial.println("Response header not found");
+            }
             ClearSerialBuffers();
         }
     }
