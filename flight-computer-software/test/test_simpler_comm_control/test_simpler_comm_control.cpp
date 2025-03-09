@@ -22,6 +22,7 @@ void setup() {
     SPI1.setSCK(sck);
     // Further initialization
     Serial.begin(115200);
+    SPI.begin();
     SPI1.begin();
     pinMode(cs, OUTPUT);
     digitalWrite(cs, HIGH);
