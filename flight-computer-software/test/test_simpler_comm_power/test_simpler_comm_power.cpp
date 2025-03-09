@@ -26,10 +26,10 @@ void setup() {
     pinMode(miso, OUTPUT);
     pinMode(sck, INPUT);
     // Set pins specific to SPI1
-    SPI1.setCS(cs);
-    SPI1.setMISO(miso);
-    SPI1.setMOSI(mosi);
-    SPI1.setSCK(sck);
+    // SPI1.setCS(cs);
+    // SPI1.setMISO(miso);
+    // SPI1.setMOSI(mosi);
+    // SPI1.setSCK(sck);
     mySPI.begin();
     mySPI.onTransfer(myCB);
 }
