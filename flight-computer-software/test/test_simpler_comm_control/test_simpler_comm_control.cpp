@@ -1,47 +1,39 @@
-#include <SPI.h>
-#include <Arduino.h>
-#include "SPI_MSTransfer_MASTER.h"
+#include "SPI.h"
 
-// SPI Communication Pins
-const int cs = 0;     // Chip Select
-const int miso = 1;   // Master In Slave Out
-const int mosi = 26;  // Master Out Slave In
-const int sck = 27;   // Serial Clock
-// Master          Slave
-// CS0 (Pin 0)	    CS0 (Pin 0)
-// MOSI0 (Pin 1)	MISO0 (Pin 26)
-// MISO0 (Pin 26)	MOSI0 (Pin 1)
-// SCK0 (Pin 27)	SCK0 (Pin 27)
-SPI_MSTransfer_MASTER<&SPI1, cs, 0x1234> mySPI1234;
+#include "SPI_MSTransfer_MASTER.h"
+SPI_MSTransfer_MASTER<&SPI, 10, 0x1234> mySPI1234;
+SPI_MSTransfer_MASTER<&SPI, 10, 0x4567> mySPI4567;
 
 void setup() {
-    pinMode(cs, OUTPUT);
-    pinMode(mosi, OUTPUT);
-    pinMode(miso, INPUT);
-    pinMode(sck, OUTPUT);
-    // Initialize SPI
-    // SPI1.setCS(cs);
-    // SPI1.setMISO(miso);
-    // SPI1.setMOSI(mosi);
-    // SPI1.setSCK(sck);
-    // Further initialization
-    Serial.begin(115200);
-    // SPI.begin();
-    SPI1.begin();
-    digitalWrite(cs, HIGH);
-    mySPI1234.begin();
+  Serial.begin(115200);
+  SPI.begin();
+  pinMode(10, OUTPUT);
+  digitalWrite(10, 1);
+  mySPI1234.begin();
+  mySPI4567.begin();
 }
 
 void loop() {
-static uint32_t t = millis();
+
+  static uint32_t t = millis();
   if ( millis() - t > 1000 ) {
     Serial.println(millis());
 
+    uint16_t buf[5] = { 0xF1, 0xF2, 0xDEAD, 0xF4, 0xBEEF };
     uint16_t buf2[5] = { 0xBEEF, 0xF7, 0xF8, 0xF9, 0xDEAD };
     mySPI1234.transfer16(buf2, 5, random(0x1000, 0x8000));
+    mySPI4567.transfer16(buf, 5, random(0x1000, 0x8000));
 
+    static bool flip = 0;
+    flip = !flip;
+    mySPI1234.digitalWrite(6, flip);
+    //    mySPI1234.pinMode(5, INPUT);
+    bool moo = mySPI1234.digitalRead(6);
+    Serial.print("State: "); Serial.println(moo);
     mySPI1234.detectSlaves();
 
+    mySPI1234.pinMode(5, INPUT);
     t = millis();
   }
+
 }
