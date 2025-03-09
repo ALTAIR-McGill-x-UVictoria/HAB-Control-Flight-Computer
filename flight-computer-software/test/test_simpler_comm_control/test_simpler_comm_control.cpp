@@ -38,7 +38,6 @@ static uint32_t t = millis();
   if ( millis() - t > 1000 ) {
     Serial.println(millis());
 
-    uint16_t buf[5] = { 0xF1, 0xF2, 0xDEAD, 0xF4, 0xBEEF };
     uint16_t buf2[5] = { 0xBEEF, 0xF7, 0xF8, 0xF9, 0xDEAD };
     mySPI1234.transfer16(buf2, 5, random(0x1000, 0x8000));
 
