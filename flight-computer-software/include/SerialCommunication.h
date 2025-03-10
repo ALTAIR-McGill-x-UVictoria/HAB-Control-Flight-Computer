@@ -321,7 +321,7 @@ public:
 
         Serial.printf("| Checksum           | 0x%04X (%s)\n",
                       data.checksum, checksumValid ? "Valid" : "Invalid");
-        Serial.println("\n==================================================================");
+        Serial.println("==================================================================");
     }
 
     // Print power board data in a formatted way
@@ -345,7 +345,7 @@ public:
 
         Serial.printf("| Checksum              | 0x%04X (%s)\n",
                       data.checksum, checksumValid ? "Valid" : "Invalid");
-        Serial.println("\n==================================================================");
+        Serial.println("==================================================================");
     }
 };
 
