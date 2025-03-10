@@ -5,7 +5,7 @@
 
 // Status message buffer size
 #define MAX_STATUS_MSG_LENGTH 64
-#define baud 230400
+#define baud 115200
 
 // Define a packet header for reliable packet detection
 static const uint8_t PACKET_HEADER[] = {0xAA, 0xBB};
