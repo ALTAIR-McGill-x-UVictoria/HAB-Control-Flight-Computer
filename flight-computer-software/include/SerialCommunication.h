@@ -5,7 +5,6 @@
 
 // Status message buffer size
 #define MAX_STATUS_MSG_LENGTH 64
-
 #define baud 230400
 
 // Define a packet header for reliable packet detection
@@ -53,167 +52,193 @@ struct PowerBoardData {
 
 class SerialCommunication {
 private:
-    Stream& dataSerial;    // Serial for data transmission (e.g., Serial1)
+    Stream& serial;        // Serial for data transmission
     BoardType boardType;   // Type of board this instance represents
-    
-    // Internal tracking
-    bool headerFound = false;
-    size_t bytesRead = 0;
-    unsigned long packetStartTime = 0;
-    uint8_t* receiveBuffer;
-    size_t receiveBufferSize;
+    uint8_t* buffer;       // Buffer for receiving data
+    size_t bufferSize;     // Current buffer size
+    bool headerFound;      // Flag for packet header detection
+    size_t bytesRead;      // Counter for bytes read
+    unsigned long packetStartTime; // Timing for packet reception
 
-public:
-    // Constructor
-    SerialCommunication(Stream& data, BoardType type = BoardType::CONTROL_BOARD) 
-        : dataSerial(data), boardType(type), receiveBuffer(nullptr), receiveBufferSize(0) {
-    }
-    
-    ~SerialCommunication() {
-        if (receiveBuffer) {
-            delete[] receiveBuffer;
-        }
-    }
-
-    void begin() {
-        Serial1.begin(baud);
-        Serial.println("Serial Communication initialized");
-        if (boardType == BoardType::CONTROL_BOARD) {
-            Serial.println("Configured as Control Board");
-            // Control board receives PowerBoardData
-            prepareReceiveBuffer<PowerBoardData>();
-        } else {
-            Serial.println("Configured as Power Board");
-            // Power board receives ControlBoardData
-            prepareReceiveBuffer<ControlBoardData>();
-        }
-        clearBuffers();
-    }
-
-    // Function to calculate simple checksum
-    uint16_t calculateChecksum(uint8_t* data, size_t length) {
+    // Internal helper for checksum calculation
+    uint16_t calculateChecksum(const uint8_t* data, size_t length) {
         uint16_t sum = 0;
         for (size_t i = 0; i < length; i++) {
             sum += data[i];
         }
         return sum;
     }
-
-    void clearBuffers() {
-        while (dataSerial.available()) {
-            dataSerial.read(); // Discard any data
-        }
-        delay(100);
-    }
-
-    // Prepare a receive buffer for a specific data type
-    template<typename T>
-    void prepareReceiveBuffer() {
-        if (receiveBuffer) {
-            delete[] receiveBuffer;
-        }
-        receiveBufferSize = sizeof(T);
-        receiveBuffer = new uint8_t[receiveBufferSize];
-        bytesRead = 0;
-        headerFound = false;
-    }
-
-    // Send data with header and checksum
-    template<typename T>
-    void sendData(T& data) {
-        // Validate that we're sending the right data type based on board type
-        if (boardType == BoardType::CONTROL_BOARD && !std::is_same<T, ControlBoardData>::value) {
-            Serial.println("Warning: Control board should send ControlBoardData");
-        }
-        else if (boardType == BoardType::POWER_BOARD && !std::is_same<T, PowerBoardData>::value) {
-            Serial.println("Warning: Power board should send PowerBoardData");
-        }
+    
+    // Allocate the receive buffer if needed
+    void ensureBufferSize(size_t size) {
+        if (buffer && bufferSize == size) return;
         
-        // Calculate checksum - exclude the checksum field itself (assuming it's the last field)
-        size_t checksumOffset = sizeof(T) - sizeof(uint16_t);
-        *reinterpret_cast<uint16_t*>((uint8_t*)&data + checksumOffset) = 
-            calculateChecksum((uint8_t*)&data, checksumOffset);
-        
-        // Send packet
-        dataSerial.write(PACKET_HEADER, sizeof(PACKET_HEADER));
-        dataSerial.write((uint8_t*)&data, sizeof(T));
-        dataSerial.flush();
+        if (buffer) delete[] buffer;
+        bufferSize = size;
+        buffer = new uint8_t[bufferSize];
+        resetReceiveState();
     }
     
-    // Receive data - returns true if a complete packet was received
-    template<typename T>
-    bool receiveData(T& data, unsigned long timeout = 1000) {
-        // Validate that we're receiving the right data type based on board type
-        if (boardType == BoardType::CONTROL_BOARD && !std::is_same<T, PowerBoardData>::value) {
-            Serial.println("Error: Control board should receive PowerBoardData");
-            return false;
+    // Reset packet reception state
+    void resetReceiveState() {
+        headerFound = false;
+        bytesRead = 0;
+    }
+
+public:
+    // Constructor
+    SerialCommunication(Stream& serialPort, BoardType boardType) 
+        : serial(serialPort), boardType(boardType), buffer(nullptr), bufferSize(0),
+          headerFound(false), bytesRead(0), packetStartTime(0) {
+    }
+    
+    // Destructor
+    ~SerialCommunication() {
+        if (buffer) delete[] buffer;
+    }
+
+    // Initialize communication
+    void begin() {
+        Serial.println("Serial Communication initialized");
+        
+        // Replace ternary with if-else for better readability
+        if (boardType == BoardType::CONTROL_BOARD) {
+            Serial.println("Configured as Control Board");
+            ensureBufferSize(sizeof(PowerBoardData));
+        } else {
+            Serial.println("Configured as Power Board");
+            ensureBufferSize(sizeof(ControlBoardData));
         }
-        else if (boardType == BoardType::POWER_BOARD && !std::is_same<T, ControlBoardData>::value) {
-            Serial.println("Error: Power board should receive ControlBoardData");
+        
+        clearBuffers();
+    }
+
+    // Discard any pending data in buffers
+    void clearBuffers() {
+        while (serial.available()) serial.read();
+        resetReceiveState();
+    }
+
+    // Send ControlBoardData (should be called from Control Board)
+    bool sendData(ControlBoardData& data) {
+        // Validate board type
+        if (boardType != BoardType::CONTROL_BOARD) {
+            Serial.println("Warning: Sending ControlBoardData from non-control board");
+        }
+        
+        // Calculate checksum
+        size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
+        data.checksum = calculateChecksum((uint8_t*)&data, checksumOffset);
+        
+        // Send packet
+        serial.write(PACKET_HEADER, sizeof(PACKET_HEADER));
+        serial.write((uint8_t*)&data, sizeof(data));
+        serial.flush();
+        
+        return true;
+    }
+    
+    // Send PowerBoardData (should be called from Power Board)
+    bool sendData(PowerBoardData& data) {
+        // Validate board type
+        if (boardType != BoardType::POWER_BOARD) {
+            Serial.println("Warning: Sending PowerBoardData from non-power board");
+        }
+        
+        // Calculate checksum
+        size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
+        data.checksum = calculateChecksum((uint8_t*)&data, checksumOffset);
+        
+        // Send packet
+        serial.write(PACKET_HEADER, sizeof(PACKET_HEADER));
+        serial.write((uint8_t*)&data, sizeof(data));
+        serial.flush();
+        
+        return true;
+    }
+    
+    // Receive PowerBoardData (should be called from Control Board)
+    bool receiveData(PowerBoardData& data, unsigned long timeout = 1000) {
+        if (boardType != BoardType::CONTROL_BOARD) {
+            Serial.println("Error: Only control board should receive PowerBoardData");
             return false;
         }
         
+        ensureBufferSize(sizeof(PowerBoardData));
+        return receivePacket((uint8_t*)&data, timeout);
+    }
+    
+    // Receive ControlBoardData (should be called from Power Board)
+    bool receiveData(ControlBoardData& data, unsigned long timeout = 1000) {
+        if (boardType != BoardType::POWER_BOARD) {
+            Serial.println("Error: Only power board should receive ControlBoardData");
+            return false;
+        }
+        
+        ensureBufferSize(sizeof(ControlBoardData));
+        return receivePacket((uint8_t*)&data, timeout);
+    }
+    
+    // Core packet reception logic
+    bool receivePacket(uint8_t* dataPtr, unsigned long timeout) {
         unsigned long startTime = millis();
         
         while (millis() - startTime < timeout) {
-            // Look for header bytes first
+            // Look for packet header
             if (!headerFound) {
-                if (dataSerial.available() >= 2) {
-                    uint8_t h1 = dataSerial.read();
-                    uint8_t h2 = dataSerial.read();
+                if (serial.available() >= 2) {
+                    uint8_t h1 = serial.read();
+                    uint8_t h2 = serial.read();
                     
                     if (h1 == PACKET_HEADER[0] && h2 == PACKET_HEADER[1]) {
                         headerFound = true;
                         packetStartTime = millis();
                         bytesRead = 0;
-                        Serial.println("Header found, waiting for data...");
                     }
                 }
             }
-            // After header is found, collect the packet data
+            // Collect packet data after header
             else {
                 // Read available bytes into buffer
-                while (dataSerial.available() > 0 && bytesRead < receiveBufferSize) {
-                    receiveBuffer[bytesRead++] = dataSerial.read();
+                while (serial.available() > 0 && bytesRead < bufferSize) {
+                    buffer[bytesRead++] = serial.read();
                 }
                 
                 // If we have a complete packet
-                if (bytesRead == receiveBufferSize) {
-                    memcpy(&data, receiveBuffer, receiveBufferSize);
+                if (bytesRead == bufferSize) {
+                    // Copy buffer to output data
+                    memcpy(dataPtr, buffer, bufferSize);
                     
                     // Verify checksum
-                    size_t checksumOffset = receiveBufferSize - sizeof(uint16_t);
-                    uint16_t receivedChecksum = *reinterpret_cast<uint16_t*>((uint8_t*)&data + checksumOffset);
-                    uint16_t calculatedChecksum = calculateChecksum((uint8_t*)&data, checksumOffset);
+                    size_t checksumOffset = bufferSize - sizeof(uint16_t);
+                    uint16_t receivedChecksum = *reinterpret_cast<uint16_t*>(dataPtr + checksumOffset);
+                    uint16_t calculatedChecksum = calculateChecksum(dataPtr, checksumOffset);
                     
                     // Reset for next packet
-                    headerFound = false;
-                    bytesRead = 0;
+                    resetReceiveState();
                     
+                    // Return true if checksum is valid
                     if (receivedChecksum == calculatedChecksum) {
-                        return true;  // Valid packet received
+                        return true;
                     } else {
-                        Serial.println("Invalid checksum");
-                                                return false;
+                        Serial.printf("Invalid checksum: expected 0x%04X, got 0x%04X\n", 
+                                    calculatedChecksum, receivedChecksum);
+                        return false;
                     }
                 }
                 
-                // Timeout if packet doesn't arrive completely within the inner timeout
+                // Packet timeout check
                 if (millis() - packetStartTime > timeout) {
-                    Serial.printf("Packet timeout, received %d of %zu bytes\n", bytesRead, receiveBufferSize);
-                    headerFound = false;
-                    bytesRead = 0;
+                    Serial.printf("Packet timeout: %d/%zu bytes\n", bytesRead, bufferSize);
+                    resetReceiveState();
                     return false;
                 }
             }
-            
-            // Small delay to prevent CPU hogging
-            delay(1);
         }
         
-        return false; // Timeout
+        return false;  // Overall timeout
     }
-        
+    
     // Print control board data in a formatted way
     void printControlBoardData(const ControlBoardData& data) {
         Serial.println("\n========================== CONTROL BOARD DATA ==========================");
