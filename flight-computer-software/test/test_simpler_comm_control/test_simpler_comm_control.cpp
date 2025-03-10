@@ -17,7 +17,6 @@ PowerBoardData rxData;     // Data to receive
 void setup() {
     // Initialize serial interfaces
     Serial.begin(9600);
-    Serial1.begin(baud);
     
     // Wait until the serial interfaces are active
     while (!Serial && millis() < 5000);  // Wait for Serial (USB) to become active

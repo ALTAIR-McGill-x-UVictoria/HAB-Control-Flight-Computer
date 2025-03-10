@@ -76,7 +76,7 @@ public:
     }
 
     void begin() {
-        // Note: caller must initialize the HardwareSerial objects separately
+        Serial1.begin(baud);
         Serial.println("Serial Communication initialized");
         if (boardType == BoardType::CONTROL_BOARD) {
             Serial.println("Configured as Control Board");
@@ -151,10 +151,6 @@ public:
         else if (boardType == BoardType::POWER_BOARD && !std::is_same<T, ControlBoardData>::value) {
             Serial.println("Error: Power board should receive ControlBoardData");
             return false;
-        }
-        
-        if (receiveBufferSize != sizeof(T)) {
-            prepareReceiveBuffer<T>();
         }
         
         unsigned long startTime = millis();
