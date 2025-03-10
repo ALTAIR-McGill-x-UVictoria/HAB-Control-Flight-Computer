@@ -52,7 +52,7 @@ struct PowerBoardData {
 
 class SerialCommunication {
 private:
-    Stream& serial;        // Serial for data transmission
+    HardwareSerial& serialPort;        // Serial for data transmission
     BoardType boardType;   // Type of board this instance represents
     uint8_t* buffer;       // Buffer for receiving data
     size_t bufferSize;     // Current buffer size
@@ -87,8 +87,8 @@ private:
 
 public:
     // Constructor
-    SerialCommunication(Stream& serialPort, BoardType boardType) 
-        : serial(serialPort), boardType(boardType), buffer(nullptr), bufferSize(0),
+    SerialCommunication(HardwareSerial& serialPort, BoardType boardType) 
+        : serialPort(serialPort), boardType(boardType), buffer(nullptr), bufferSize(0),
           headerFound(false), bytesRead(0), packetStartTime(0) {
     }
     
@@ -97,10 +97,10 @@ public:
         if (buffer) delete[] buffer;
     }
 
-    // Initialize communication - put Serial1.begin back
+    // Initialize communication with Serial1 initialization directly
     void begin() {
+        serialPort.begin(baud);
         Serial.println("Serial Communication initialized");
-        serial.begin(baud);  // Initialize the serial port
         
         if (boardType == BoardType::CONTROL_BOARD) {
             Serial.println("Configured as Control Board");
@@ -110,8 +110,8 @@ public:
             ensureBufferSize(sizeof(ControlBoardData));
         }
         
-        // Add debug info about serial configuration
-        Serial.printf("Serial communication configured at %d baud\n", baud);
+        // Add debug info about serialPort configuration
+        Serial.printf("Serial1 configured at %d baud\n", baud);
         
         // More thorough clear buffers operation
         clearBuffers();
@@ -121,13 +121,13 @@ public:
     // Discard any pending data in buffers
     void clearBuffers() {
         // Discard any pending data
-        while (serial.available()) serial.read();
+        while (serialPort.available()) serialPort.read();
         
         // Reset packet reception state
         resetReceiveState();
         
         // Flush any outgoing data
-        serial.flush();
+        serialPort.flush();
         
         // Brief delay to let things settle
         delay(10);
@@ -145,9 +145,9 @@ public:
         data.checksum = calculateChecksum((uint8_t*)&data, checksumOffset);
         
         // Send packet
-        serial.write(PACKET_HEADER, sizeof(PACKET_HEADER));
-        serial.write((uint8_t*)&data, sizeof(data));
-        serial.flush();
+        serialPort.write(PACKET_HEADER, sizeof(PACKET_HEADER));
+        serialPort.write((uint8_t*)&data, sizeof(data));
+        serialPort.flush();
         
         return true;
     }
@@ -164,9 +164,9 @@ public:
         data.checksum = calculateChecksum((uint8_t*)&data, checksumOffset);
         
         // Send packet
-        serial.write(PACKET_HEADER, sizeof(PACKET_HEADER));
-        serial.write((uint8_t*)&data, sizeof(data));
-        serial.flush();
+        serialPort.write(PACKET_HEADER, sizeof(PACKET_HEADER));
+        serialPort.write((uint8_t*)&data, sizeof(data));
+        serialPort.flush();
         
         return true;
     }
@@ -200,9 +200,9 @@ public:
         while (millis() - startTime < timeout) {
             // Look for packet header
             if (!headerFound) {
-                if (serial.available() >= 2) {
-                    uint8_t h1 = serial.read();
-                    uint8_t h2 = serial.read();
+                if (serialPort.available() >= 2) {
+                    uint8_t h1 = serialPort.read();
+                    uint8_t h2 = serialPort.read();
                     
                     if (h1 == PACKET_HEADER[0] && h2 == PACKET_HEADER[1]) {
                         headerFound = true;
@@ -214,8 +214,8 @@ public:
             // Collect packet data after header
             else {
                 // Read available bytes into buffer
-                while (serial.available() > 0 && bytesRead < bufferSize) {
-                    buffer[bytesRead++] = serial.read();
+                while (serialPort.available() > 0 && bytesRead < bufferSize) {
+                    buffer[bytesRead++] = serialPort.read();
                 }
                 
                 // If we have a complete packet

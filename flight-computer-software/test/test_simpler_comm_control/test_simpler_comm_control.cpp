@@ -15,13 +15,13 @@ ControlBoardData txData;   // Data to send
 PowerBoardData rxData;     // Data to receive
 
 void setup() {
-    // Initialize debug serial interface (USB)
+    // Initialize debug serial interface
     Serial.begin(9600);
     
     // Wait until the serial interface is active
     while (!Serial && millis() < 5000);  // Wait for Serial (USB) to become active
     
-    // Communication is initialized in this call, which will set up Serial1
+    // Initialize the communication system (Serial1 will be initialized in begin())
     comm.begin();
     Serial.println("Controller Board initialized");
     Serial.printf("Size of ControlBoardData: %d bytes\n", sizeof(ControlBoardData));
