@@ -15,12 +15,13 @@ ControlBoardData txData;   // Data to send
 PowerBoardData rxData;     // Data to receive
 
 void setup() {
-    // Initialize serial interfaces
+    // Initialize debug serial interface (USB)
     Serial.begin(9600);
     
-    // Wait until the serial interfaces are active
+    // Wait until the serial interface is active
     while (!Serial && millis() < 5000);  // Wait for Serial (USB) to become active
     
+    // Communication is initialized in this call, which will set up Serial1
     comm.begin();
     Serial.println("Controller Board initialized");
     Serial.printf("Size of ControlBoardData: %d bytes\n", sizeof(ControlBoardData));
@@ -36,7 +37,32 @@ void setup() {
     txData.orientationPitch = 0;
     txData.orientationRoll = 0;
     
-    delay(1000);    // Allow sync time between Teensys
+    delay(2000);    // Allow more sync time between Teensys
+
+    // Send initial packet to establish communication
+    txData.timestamp = millis();
+    txData.pressure = 1000;
+    txData.altitude = 0;
+    txData.temperature = 25;
+    strcpy(txData.statusMsg, "Initial message from Control Board");
+    txData.statusMsgLength = strlen(txData.statusMsg);
+    
+    // Initialize the rest of the fields to prevent random values
+    txData.accelX = 0;
+    txData.accelY = 0;
+    txData.accelZ = 0;
+    txData.angularVelocityX = 0;
+    txData.angularVelocityY = 0;
+    txData.angularVelocityZ = 0;
+    txData.orientationYaw = 0;
+    txData.orientationPitch = 0;
+    txData.orientationRoll = 0;
+    
+    // Send initial packet
+    Serial.println("Sending initial data packet...");
+    comm.sendData(txData);
+    Serial.println("SENT INITIAL DATA:");
+    comm.printControlBoardData(txData);
 }
 
 // Timer for periodic sending
@@ -65,21 +91,21 @@ void loop() {
         txData.orientationYaw = random(0, 360);    // Simulated orientation (deg)
         txData.orientationPitch = random(-90, 90);
         txData.orientationRoll = random(-180, 180);
-        
-        // Update status message occasionally
-        if (random(5) == 0) {
-            sprintf(txData.statusMsg, "Status update at %lu ms", txData.timestamp);
-            txData.statusMsgLength = strlen(txData.statusMsg);
-        }
+        sprintf(txData.statusMsg, "Status update at %lu ms", txData.timestamp);
+        txData.statusMsgLength = strlen(txData.statusMsg);
         
         // Send the data packet
-        comm.sendData(txData);  // or use comm.sendBoardData(txData);
-        Serial.println("SENT DATA:");
-        comm.printControlBoardData(txData);
+        Serial.println("Sending data packet...");
+        if (comm.sendData(txData)) {
+            Serial.println("SENT DATA:");
+            comm.printControlBoardData(txData);
+        } else {
+            Serial.println("ERROR: Failed to send data");
+        }
         
         // Wait for response
         Serial.println("Waiting for response...");
-        if (comm.receiveData(rxData, RECEIVE_TIMEOUT)) {  // or use comm.receiveBoardData(rxData, RECEIVE_TIMEOUT);
+        if (comm.receiveData(rxData, RECEIVE_TIMEOUT)) {
             Serial.println("RECEIVED DATA:");
             comm.printPowerBoardData(rxData);
             

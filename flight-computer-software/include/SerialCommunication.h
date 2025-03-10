@@ -97,11 +97,11 @@ public:
         if (buffer) delete[] buffer;
     }
 
-    // Initialize communication
+    // Initialize communication - put Serial1.begin back
     void begin() {
         Serial.println("Serial Communication initialized");
+        serial.begin(baud);  // Initialize the serial port
         
-        // Replace ternary with if-else for better readability
         if (boardType == BoardType::CONTROL_BOARD) {
             Serial.println("Configured as Control Board");
             ensureBufferSize(sizeof(PowerBoardData));
@@ -110,13 +110,27 @@ public:
             ensureBufferSize(sizeof(ControlBoardData));
         }
         
+        // Add debug info about serial configuration
+        Serial.printf("Serial communication configured at %d baud\n", baud);
+        
+        // More thorough clear buffers operation
         clearBuffers();
+        delay(100);  // Give some time for things to stabilize
     }
 
     // Discard any pending data in buffers
     void clearBuffers() {
+        // Discard any pending data
         while (serial.available()) serial.read();
+        
+        // Reset packet reception state
         resetReceiveState();
+        
+        // Flush any outgoing data
+        serial.flush();
+        
+        // Brief delay to let things settle
+        delay(10);
     }
 
     // Send ControlBoardData (should be called from Control Board)
