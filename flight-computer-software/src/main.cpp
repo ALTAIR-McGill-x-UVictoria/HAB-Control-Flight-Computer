@@ -2,10 +2,19 @@
 #include <TeensyThreads.h>
 #include "StateMachine.h"
 #include "Sensors.h"
+#include "SerialCommunication.h"
+#include "LogQueue.h"
 #include <SD.h>
 #include <SPI.h>
 
+const int chipSelect = 10;  // SD card chip select pin
+
 Sensors sensors;
+SerialCommunication serialComm = SerialCommunication(Serial1, BoardType::CONTROL_BOARD);
+LogQueue telemetryTransmitQueue = LogQueue();
+
+// Data structures (Data to send and receive)
+PowerBoardData rxData;
 
 enum State {
     INITIALIZATION,
@@ -20,19 +29,19 @@ enum State {
     DESCENT
 };
 
-bool initialized;           // Initialization status flag
-bool aborted;               // Mission abortion status flag
-int lastTime;               // Used for timeouts and delays
-char telemetry_status;      // Telemetry status flag
-char gps_status;            // GPS status flag
-char battery_status;        // Battery status flag
-char altimeter_status;      // Altimeter status flag
-char temperature_status;    // Temperature status flag
-char imu_status[3];         // IMUs status flag
-float altitude;             // Altitude of the HAB
-float initialAltitude;     // Initial altitude of the HAB
-const int chipSelect = 10;  // SD card chip select pin
-float stabilizationStartTime;    // Time to stabilize the HAB
+bool initialized;               // Initialization status flag
+bool aborted;                   // Mission abortion status flag
+int lastTime;                   // Used for timeouts and delays
+char telemetry_status;          // Telemetry status flag
+char gps_status;                // GPS status flag
+char battery_status;            // Battery status flag
+char altimeter_status;          // Altimeter status flag
+char temperature_status;        // Temperature status flag
+char imu_status[3];             // IMUs status flag
+float altitude;                 // Altitude of the HAB
+float initialAltitude;          // Initial altitude of the HAB
+float stabilizationStartTime;   // Time to stabilize the HAB
+char status_message[MAX_STATUS_MSG_LENGTH];       // Status message
 
 StateMachine<10, 15> flight_fsm;
 int telemetry_thread_id = -1;
@@ -65,16 +74,24 @@ void initialization_entry() {
     tone(33, 700, 500); //tone(uint8_t pin, uint16_t frequency, uint32_t duration)
     delay(500);
     noTone(33); //stop playing a note on pin 33
-    
-    
 }
 
-
 void telemetry_check_entry() {
-    // Init spi telemetry api
+    // Init serial telemetry api
+    serialComm.begin();
     // Verify connection
-    // Verify GPS (using api)
-    // Print status
+    int retry_counter = 0;
+    while(retry_counter < 5) {
+        // Status printing within the verifyConnection function
+        if(serialComm.verifyConnection()) {
+            telemetry_status = 1;
+            break;
+        } else {
+            telemetry_status = 0;
+            retry_counter++;
+        }
+    }
+    // TODO: Verify GPS (using api)
 }
 
 void battery_check_entry() {
@@ -205,6 +222,30 @@ bool is_initialized() {
 bool has_failed() {
     // Print error message
     // Check all states for error
+    // Main failure points: telemetry, gps, battery, altimeter, temperature,
+    if (telemetry_status < 0) {
+        Serial.println("Telemetry failed");
+        return true;
+    }
+    if (gps_status < 0) {
+        Serial.println("GPS failed");
+        return true;
+    }
+    if (battery_status < 0) {
+        Serial.println("Battery failed");
+        return true;
+    }
+    if (altimeter_status < 0) {
+        Serial.println("Altimeter failed");
+        return true;
+    }
+    if (temperature_status < 0) {
+        Serial.println("Temperature failed");
+        return true;
+    }
+
+    // IMU check more elaborate due to having to check if at least 2 sensors are operational
+    // TODO
     return false;
 }
 
@@ -218,10 +259,59 @@ bool has_battery() {
     return battery_status > 0;
 }
 
+void populate_telemetry_data() {
+    // Populate txData with telemetry data from sensors class
+    // To be called at the end of the states that perform logging as well
+    float xLinearAcceleration, yLinearAcceleration, zLinearAcceleration;
+    sensors.getFusedLinearAcceleration(xLinearAcceleration, yLinearAcceleration, zLinearAcceleration);
+    float xAngularVelocity, yAngularVelocity, zAngularVelocity;
+    sensors.getFusedAngularVelocity(xAngularVelocity, yAngularVelocity, zAngularVelocity);
+    float yawOrientation, pitchOrientation, rollOrientation;
+    sensors.getFusedOrientation(yawOrientation, pitchOrientation, rollOrientation);
+    ControlBoardData txData;
+    txData = {
+        .timestamp = millis(),
+        .pressure = sensors.getPressure(),
+        .altitude = sensors.getAltitude(),
+        .temperature = sensors.getTemperature(),
+        .accelX = xLinearAcceleration,
+        .accelY = yLinearAcceleration,
+        .accelZ = zLinearAcceleration,
+        .angularVelocityX = xAngularVelocity,
+        .angularVelocityY = yAngularVelocity,
+        .angularVelocityZ = zAngularVelocity,
+        .orientationYaw = yawOrientation,
+        .orientationPitch = pitchOrientation,
+        .orientationRoll = rollOrientation,
+        .statusMsgLength = strlen(status_message),
+    };
+    strcpy(rxData.statusMsg, status_message); 
+    // Add telemetry data to queue for transmission by converting it to a char array
+    char telemetryData[sizeof(ControlBoardData)];
+    memcpy(telemetryData, &txData, sizeof(ControlBoardData));
+    telemetryTransmitQueue.enqueue(telemetryData);
+}
+
 void telemetry_thread() {
     while(true) {
-        // Read telemetry data
-        // Send telemetry data
+        // Receive telemetry data
+        PowerBoardData tempData;
+        if (serialComm.receiveData(tempData)) {
+            // Process received data
+            rxData = tempData;
+        }
+        // dequeue data from the queue, convert it to the struct, and send it
+        char telemetryData[sizeof(ControlBoardData)];
+        if (telemetryTransmitQueue.dequeue(telemetryData, sizeof(telemetryData))) {
+            ControlBoardData txData;
+            memcpy(&txData, telemetryData, sizeof(ControlBoardData));
+            // Send telemetry data
+            if (serialComm.sendData(txData)) {
+                Serial.println("Telemetry data sent successfully.");
+            }
+        }
+        // In case the queue is empty
+        threads.yield();
     }
 }
 
@@ -294,7 +384,7 @@ void data_collection_thread() { //this is from the Datalogging example under SD 
   String dataString = "";
 
   
-  //logQueue.Dequeue; //call function here to get data from queue
+  //LogQueue.Dequeue; //call function here to get data from queue
 
   // open the file.
   File dataFile = SD.open("datalog.txt", FILE_WRITE);

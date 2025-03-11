@@ -19,12 +19,23 @@ enum class BoardType
 
 #pragma pack(push, 1)
 /* Data structure to be sent from control board */
+struct VerificationData
+{
+    uint32_t test_value_1;
+    uint32_t test_value_2;
+    float test_value_3;
+    float test_value_4;
+    char statusMsg[MAX_STATUS_MSG_LENGTH];
+    uint32_t statusMsgLength;
+    uint16_t checksum;
+};
+
 struct ControlBoardData
 {
     uint32_t timestamp;                    // 0x00: Time of data capture
-    uint32_t pressure;                     // 0x04: Atmospheric pressure
-    uint32_t altitude;                     // 0x08: Altitude
-    uint32_t temperature;                  // 0x0C: Temperature probe reading
+    float pressure;                        // 0x04: Atmospheric pressure
+    float altitude;                        // 0x08: Altitude
+    float temperature;                     // 0x0C: Temperature probe reading
     float accelX;                          // 0x10: X-axis linear acceleration (m/s^2)
     float accelY;                          // 0x14: Y-axis linear acceleration (m/s^2)
     float accelZ;                          // 0x18: Z-axis linear acceleration (m/s^2)
@@ -34,9 +45,9 @@ struct ControlBoardData
     float orientationYaw;                  // 0x28: Yaw (deg)
     float orientationPitch;                // 0x2C: Pitch (deg)
     float orientationRoll;                 // 0x2E: Roll (deg)
-    uint16_t statusMsgLength;              // 0x30: Length of the variable data section
-    char statusMsg[MAX_STATUS_MSG_LENGTH]; // 0x32: Extra data with dynamic length
-    uint16_t checksum;                     // 0x32 + Msg Length: Error detection
+    uint32_t statusMsgLength;              // 0x30: Length of the variable data section
+    char statusMsg[MAX_STATUS_MSG_LENGTH]; // 0x34: Extra data with dynamic length
+    uint16_t checksum;                     // 0x36 + Msg Length: Error detection
 };
 
 /* Data structure to be received from power board */
@@ -47,8 +58,8 @@ struct PowerBoardData
     float latitude;                        // 0x08: GPS latitude
     float longitude;                       // 0x0C: GPS longitude
     bool abortCommand;                     // 0x10: Command to abort, default false
-    uint16_t statusMsgLength;              // 0x11: Length of the variable data section
-    char statusMsg[MAX_STATUS_MSG_LENGTH]; // 0x13: Status message and heartbeat
+    uint32_t statusMsgLength;              // 0x11: Length of the variable data section
+    char statusMsg[MAX_STATUS_MSG_LENGTH]; // 0x15: Status message and heartbeat
     uint16_t checksum;                     // Checksum at the end
 };
 #pragma pack(pop)
@@ -152,14 +163,83 @@ public:
         delay(10);
     }
 
+    // Send VerificationData (for initialization)
+    bool sendData(VerificationData &data)
+    {
+        // Calculate checksum
+        size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
+        data.checksum = calculateChecksum((uint8_t *)&data, checksumOffset);
+
+        // Send packet
+        serialPort.write(PACKET_HEADER, sizeof(PACKET_HEADER));
+        serialPort.write((uint8_t *)&data, sizeof(data));
+        serialPort.flush();
+
+        return true;
+    }
+
+    // Receive VerificationData (for initialization)
+    bool receiveData(VerificationData &data, unsigned long timeout = 1000)
+    {
+        // Ensure buffer size for verification data
+        ensureBufferSize(sizeof(VerificationData));
+        return receivePacket((uint8_t *)&data, timeout);
+    }
+
+    bool verifyConnection(unsigned long timeout = 1000)
+    {
+        // Send the data packet
+        Serial.println("Sending data packet...");
+        // Send initial packet to establish communication
+        VerificationData txData = VerificationData();
+        txData = {
+            .test_value_1 = 1,
+            .test_value_2 = 2,
+            .test_value_3 = 3.3f,
+            .test_value_4 = 4.4f,
+            .statusMsg = "Verification data",
+            .statusMsgLength = strlen(txData.statusMsg)};
+        if (sendData(txData))
+        {
+            Serial.println("SENT DATA:");
+            printVerificationData(txData);
+        }
+        else
+        {
+            Serial.println("ERROR: Failed to send data");
+            return false;
+        }
+        VerificationData rxData = VerificationData();
+        // Wait for response
+        Serial.println("Waiting for response...");
+        if (receiveData(rxData, timeout))
+        {
+            Serial.println("RECEIVED DATA:");
+            printVerificationData(rxData);
+            if (rxData.test_value_1 == txData.test_value_1 &&
+                rxData.test_value_2 == txData.test_value_2 &&
+                rxData.test_value_3 == txData.test_value_3 &&
+                rxData.test_value_4 == txData.test_value_4 &&
+                rxData.statusMsgLength == txData.statusMsgLength &&
+                strcmp(rxData.statusMsg, txData.statusMsg) == 0)
+            {
+                Serial.println("Connection verified successfully!");
+                return true;
+            }
+            Serial.println("ERROR: Verification data mismatch");
+            return false;
+        }
+        Serial.println("Timeout waiting for response data");
+        clearBuffers();
+        return false;
+    }
+
     // Send ControlBoardData (should be called from Control Board)
     bool sendData(ControlBoardData &data)
     {
         // Validate board type
         if (boardType != BoardType::CONTROL_BOARD)
-        {
-            Serial.println("Warning: Sending ControlBoardData from non-control board");
-        }
+            return false;
 
         // Calculate checksum
         size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
@@ -178,9 +258,7 @@ public:
     {
         // Validate board type
         if (boardType != BoardType::POWER_BOARD)
-        {
-            Serial.println("Warning: Sending PowerBoardData from non-power board");
-        }
+            return false;
 
         // Calculate checksum
         size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
@@ -290,6 +368,29 @@ public:
         }
 
         return false; // Overall timeout
+    }
+
+    // Print verification data in a formatted way
+    void printVerificationData(const VerificationData &data)
+    {
+        Serial.println("\n======================== VERIFICATION DATA ========================");
+        Serial.println("| Field              | Value                                      ");
+        Serial.println("|--------------------|--------------------------------------------");
+        Serial.printf("| Test Value 1       | %u\n", data.test_value_1);
+        Serial.printf("| Test Value 2       | %u\n", data.test_value_2);
+        Serial.printf("| Test Value 3       | %.2f\n", data.test_value_3);
+        Serial.printf("| Test Value 4       | %.2f\n", data.test_value_4);
+        Serial.printf("| Status Length      | %u bytes\n", data.statusMsgLength);
+        Serial.printf("| Status Message     | %s\n", data.statusMsg);
+
+        // Calculate checksum offset (the checksum field itself)
+        size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
+        uint16_t calculatedChecksum = calculateChecksum((uint8_t *)&data, checksumOffset);
+        bool checksumValid = (calculatedChecksum == data.checksum);
+
+        Serial.printf("| Checksum           | 0x%04X (%s)\n",
+                      data.checksum, checksumValid ? "Valid" : "Invalid");
+        Serial.println("==================================================================");
     }
 
     // Print control board data in a formatted way

@@ -27,16 +27,6 @@ void setup() {
     Serial.printf("Size of ControlBoardData: %d bytes\n", sizeof(ControlBoardData));
     Serial.printf("Size of PowerBoardData: %d bytes\n", sizeof(PowerBoardData));
 
-    // Initialize data with default values
-    txData.timestamp = 0;
-    txData.altitude = 0;
-    txData.statusMsgLength = 0;
-    strcpy(txData.statusMsg, "System initialized");
-    txData.statusMsgLength = strlen(txData.statusMsg);
-    txData.orientationYaw = 0;
-    txData.orientationPitch = 0;
-    txData.orientationRoll = 0;
-    
     delay(2000);    // Allow more sync time between Teensys
 
     // Send initial packet to establish communication
