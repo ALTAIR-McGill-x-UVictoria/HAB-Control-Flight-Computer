@@ -22,8 +22,10 @@ library to provide the following data :
 
 SensorStatus Sensors::begin(SensorStatus status)
 {
-  Wire1.begin();
-  Wire2.begin();
+  if (!status.imu1 && !status.imu2)
+    Wire1.begin();
+  if (!status.imu3)
+    Wire2.begin();
   if (!status.imu1)
     status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
