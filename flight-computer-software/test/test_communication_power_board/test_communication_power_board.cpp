@@ -40,25 +40,23 @@ void setup() {
     Serial.println("Power Board initialized");
     Serial.printf("Size of ControlBoardData: %d bytes\n", sizeof(ControlBoardData));
     Serial.printf("Size of PowerBoardData: %d bytes\n", sizeof(PowerBoardData));
-    
-    // Initialization complete
-    Serial.println("Ready to receive data from control board");
-    
-    // Initialize response data structure
-    memset(&txData, 0, sizeof(PowerBoardData));  // Clear all fields to zero
+
+    // Send initial packet to establish communication
+    Serial.println("Sending verification data packet...");
+    comm.verifyConnection();
 }
 
 void loop() {
     // Debug output (once per second)
     static unsigned long lastDebugTime = 0;
     if (millis() - lastDebugTime > 1000) {
-        Serial.println("Waiting for controller data...");
+        Serial.println("Waiting for control board data...");
         Serial.printf("Serial1 available bytes: %d\n", Serial1.available());
         lastDebugTime = millis();
     }
     
-    // Try to receive data from controller (use a longer timeout for debugging)
-    if (comm.receiveData(rxData, 200)) { // Slightly longer timeout for debugging
+    // Try to receive data from controller
+    if (comm.receiveData(rxData, 2000)) {
         Serial.println("SUCCESS! RECEIVED DATA FROM CONTROL BOARD:");
         comm.printControlBoardData(rxData);
         
