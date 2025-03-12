@@ -260,10 +260,10 @@ public:
                     strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0)
                 {
                     Serial.println("Connection verified successfully!");
-                    return true;
+                }else{
+                    Serial.println("ERROR: Verification data mismatch");
+                    return false;
                 }
-                Serial.println("ERROR: Verification data mismatch");
-                return false;
             }
 
             // Send the data packet
@@ -274,6 +274,7 @@ public:
             {
                 Serial.println("SENT DATA:");
                 printVerificationData(rxData);
+                return true;
             }
             else
             {
