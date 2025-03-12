@@ -232,7 +232,6 @@ public:
                     rxData.statusMsgLength == controlBoardTxData.statusMsgLength &&
                     strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0)
                 {
-                    Serial.println("Connection verified successfully!");
                     return true;
                 }
                 Serial.println("ERROR: Verification data mismatch");
@@ -252,15 +251,13 @@ public:
             {
                 Serial.println("RECEIVED DATA:");
                 printVerificationData(rxData);
-                if (rxData.test_value_1 == controlBoardTxData.test_value_1 &&
-                    rxData.test_value_2 == controlBoardTxData.test_value_2 &&
-                    rxData.test_value_3 == controlBoardTxData.test_value_3 &&
-                    rxData.test_value_4 == controlBoardTxData.test_value_4 &&
-                    rxData.statusMsgLength == controlBoardTxData.statusMsgLength &&
-                    strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0)
+                if (!(rxData.test_value_1 == controlBoardTxData.test_value_1 &&
+                      rxData.test_value_2 == controlBoardTxData.test_value_2 &&
+                      rxData.test_value_3 == controlBoardTxData.test_value_3 &&
+                      rxData.test_value_4 == controlBoardTxData.test_value_4 &&
+                      rxData.statusMsgLength == controlBoardTxData.statusMsgLength &&
+                      strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0))
                 {
-                    Serial.println("Connection verified successfully!");
-                }else{
                     Serial.println("ERROR: Verification data mismatch");
                     return false;
                 }
