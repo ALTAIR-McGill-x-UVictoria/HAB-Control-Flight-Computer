@@ -188,6 +188,7 @@ public:
 
     bool verifyConnection(unsigned long timeout = 5000)
     {
+        clearBuffers();
         VerificationData controlBoardTxData = VerificationData();
         controlBoardTxData = {
             .test_value_1 = 1,
