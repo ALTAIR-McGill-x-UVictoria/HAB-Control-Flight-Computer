@@ -186,51 +186,101 @@ public:
         return receivePacket((uint8_t *)&data, timeout);
     }
 
-    bool verifyConnection(unsigned long timeout = 1000)
+    bool verifyConnection(unsigned long timeout = 5000)
     {
-        // Send the data packet
-        Serial.println("Sending data packet...");
-        // Send initial packet to establish communication
-        VerificationData txData = VerificationData();
-        txData = {
+        VerificationData controlBoardTxData = VerificationData();
+        controlBoardTxData = {
             .test_value_1 = 1,
             .test_value_2 = 2,
             .test_value_3 = 3.3f,
             .test_value_4 = 4.4f,
             .statusMsg = "Verification data",
-            .statusMsgLength = strlen(txData.statusMsg)};
-        if (sendData(txData))
+            .statusMsgLength = strlen(controlBoardTxData.statusMsg)};
+
+        // If the boardtype is the control board, then send the data packet first and then wait to receive the answer
+        // If it is the power board, then wait for the data packet and then send an answer back
+        if (boardType == BoardType::CONTROL_BOARD)
         {
-            Serial.println("SENT DATA:");
-            printVerificationData(txData);
-        }
-        else
-        {
-            Serial.println("ERROR: Failed to send data");
-            return false;
-        }
-        VerificationData rxData = VerificationData();
-        // Wait for response
-        Serial.println("Waiting for response...");
-        if (receiveData(rxData, timeout))
-        {
-            Serial.println("RECEIVED DATA:");
-            printVerificationData(rxData);
-            if (rxData.test_value_1 == txData.test_value_1 &&
-                rxData.test_value_2 == txData.test_value_2 &&
-                rxData.test_value_3 == txData.test_value_3 &&
-                rxData.test_value_4 == txData.test_value_4 &&
-                rxData.statusMsgLength == txData.statusMsgLength &&
-                strcmp(rxData.statusMsg, txData.statusMsg) == 0)
+            // Send the data packet
+            Serial.println("Sending data packet...");
+            // Send initial packet to establish communication
+
+            // Delay to allow response to be received by the power board
+            delay(2000);
+            if (sendData(controlBoardTxData))
             {
-                Serial.println("Connection verified successfully!");
-                return true;
+                Serial.println("SENT DATA:");
+                printVerificationData(controlBoardTxData);
             }
-            Serial.println("ERROR: Verification data mismatch");
+            else
+            {
+                Serial.println("ERROR: Failed to send data");
+                return false;
+            }
+
+            VerificationData rxData = VerificationData();
+            // Wait for response
+            Serial.println("Waiting for response...");
+            if (receiveData(rxData, timeout))
+            {
+                Serial.println("RECEIVED DATA:");
+                printVerificationData(rxData);
+                if (rxData.test_value_1 == controlBoardTxData.test_value_1 &&
+                    rxData.test_value_2 == controlBoardTxData.test_value_2 &&
+                    rxData.test_value_3 == controlBoardTxData.test_value_3 &&
+                    rxData.test_value_4 == controlBoardTxData.test_value_4 &&
+                    rxData.statusMsgLength == controlBoardTxData.statusMsgLength &&
+                    strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0)
+                {
+                    Serial.println("Connection verified successfully!");
+                    return true;
+                }
+                Serial.println("ERROR: Verification data mismatch");
+                return false;
+            }
+            Serial.println("Timeout waiting for response data");
+            clearBuffers();
             return false;
         }
-        Serial.println("Timeout waiting for response data");
-        clearBuffers();
+        else if (boardType == BoardType::POWER_BOARD)
+        {
+
+            VerificationData rxData = VerificationData();
+
+            Serial.println("Waiting for response...");
+            if (receiveData(rxData, timeout))
+            {
+                Serial.println("RECEIVED DATA:");
+                printVerificationData(rxData);
+                if (rxData.test_value_1 == controlBoardTxData.test_value_1 &&
+                    rxData.test_value_2 == controlBoardTxData.test_value_2 &&
+                    rxData.test_value_3 == controlBoardTxData.test_value_3 &&
+                    rxData.test_value_4 == controlBoardTxData.test_value_4 &&
+                    rxData.statusMsgLength == controlBoardTxData.statusMsgLength &&
+                    strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0)
+                {
+                    Serial.println("Connection verified successfully!");
+                    return true;
+                }
+                Serial.println("ERROR: Verification data mismatch");
+                return false;
+            }
+
+            // Send the data packet
+            Serial.println("Sending data packet...");
+            // Send initial packet to establish communication
+
+            if (sendData(rxData))
+            {
+                Serial.println("SENT DATA:");
+                printVerificationData(rxData);
+            }
+            else
+            {
+                Serial.println("ERROR: Failed to send data");
+                return false;
+            }
+        }
         return false;
     }
 
