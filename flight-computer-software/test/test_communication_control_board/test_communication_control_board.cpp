@@ -27,44 +27,17 @@ void setup() {
     Serial.printf("Size of ControlBoardData: %d bytes\n", sizeof(ControlBoardData));
     Serial.printf("Size of PowerBoardData: %d bytes\n", sizeof(PowerBoardData));
 
-    delay(2000);    // Allow more sync time between Teensys
-
     // Send initial packet to establish communication
-    txData.timestamp = millis();
-    txData.pressure = 1000;
-    txData.altitude = 0;
-    txData.temperature = 25;
-    strcpy(txData.statusMsg, "Initial message from Control Board");
-    txData.statusMsgLength = strlen(txData.statusMsg);
-    
-    // Initialize the rest of the fields to prevent random values
-    txData.accelX = 0;
-    txData.accelY = 0;
-    txData.accelZ = 0;
-    txData.angularVelocityX = 0;
-    txData.angularVelocityY = 0;
-    txData.angularVelocityZ = 0;
-    txData.orientationYaw = 0;
-    txData.orientationPitch = 0;
-    txData.orientationRoll = 0;
-    
-    // Send initial packet
-    Serial.println("Sending initial data packet...");
-    comm.sendData(txData);
-    Serial.println("SENT INITIAL DATA:");
-    comm.printControlBoardData(txData);
+    Serial.println("Sending verification data packet...");
+    comm.verifyConnection();
 }
 
 // Timer for periodic sending
 elapsedMillis sendTimer;
-#define SEND_INTERVAL 5000  // Send data every 5 seconds
-
-// Timeout for receiving response
-#define RECEIVE_TIMEOUT 2000
 
 void loop() {
     // Send data every 5 seconds
-    if (sendTimer >= SEND_INTERVAL) {
+    if (sendTimer >= 5000) {
         sendTimer = 0;
         
         // Update data values (in a real application, you would get these from sensors)
@@ -95,7 +68,7 @@ void loop() {
         
         // Wait for response
         Serial.println("Waiting for response...");
-        if (comm.receiveData(rxData, RECEIVE_TIMEOUT)) {
+        if (comm.receiveData(rxData, 2000)) {
             Serial.println("RECEIVED DATA:");
             comm.printPowerBoardData(rxData);
             
