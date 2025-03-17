@@ -1,92 +1,116 @@
 #include <Arduino.h>
 #include <TeensyThreads.h>
 
-// Configuration
-#define QUEUE_SIZE 32
-#define MAX_MESSAGE_LENGTH 128
-
-// Structure for a log message
-struct LogMessage
-{
-    char message[MAX_MESSAGE_LENGTH];
-    bool active;
-};
-
-// The queue class
+template <typename T, size_t QUEUE_SIZE = 32>
 class LogQueue
 {
 private:
-    LogMessage queue[QUEUE_SIZE];
-    int head;
-    int tail;
-    int count;
+    T queue[QUEUE_SIZE];
+    bool active[QUEUE_SIZE];
+    size_t head;
+    size_t tail;
+    size_t count;
     Threads::Mutex queueMutex;
+    Threads::Mutex countMutex;
 
 public:
     // Initialize the queue
     LogQueue() : head(0), tail(0), count(0)
     {
-        for (int i = 0; i < QUEUE_SIZE; i++)
+        for (size_t i = 0; i < QUEUE_SIZE; i++)
         {
-            queue[i].active = false;
+            active[i] = false;
         }
     }
 
-    // Add message to the queue
-    bool enqueue(const char *message)
+    // Add item to the queue
+    bool enqueue(const T& item)
     {
         bool result = false;
-        queueMutex.lock();
-
-        if (count < QUEUE_SIZE)
-        {
-            strncpy(queue[tail].message, message, MAX_MESSAGE_LENGTH - 1);
-            queue[tail].message[MAX_MESSAGE_LENGTH - 1] = '\0';
-            queue[tail].active = true;
-            tail = (tail + 1) % QUEUE_SIZE;
+        
+        // Check if queue is full
+        countMutex.lock();
+        bool isFull = (count >= QUEUE_SIZE);
+        if (!isFull) {
             count++;
-            result = true;
         }
-
+        countMutex.unlock();
+        
+        if (isFull) {
+            return false;
+        }
+        
+        // Add item to queue
+        queueMutex.lock();
+        queue[tail] = item;
+        active[tail] = true;
+        tail = (tail + 1) % QUEUE_SIZE;
+        result = true;
         queueMutex.unlock();
+        
         return result;
     }
 
-    // Get message from the queue
-    bool dequeue(char *buffer, int bufferSize)
+    // Get item from the queue
+    bool dequeue(T& item)
     {
+        // Check if queue is empty
+        countMutex.lock();
+        bool isEmpty = (count <= 0);
+        if (!isEmpty) {
+            count--;
+        }
+        countMutex.unlock();
+        
+        if (isEmpty) {
+            return false;
+        }
+        
         bool result = false;
         queueMutex.lock();
-
-        if (count > 0 && queue[head].active)
-        {
-            strncpy(buffer, queue[head].message, bufferSize - 1);
-            buffer[bufferSize - 1] = '\0';
-            queue[head].active = false;
+        if (active[head]) {
+            item = queue[head];
+            active[head] = false;
             head = (head + 1) % QUEUE_SIZE;
-            count--;
             result = true;
         }
-
         queueMutex.unlock();
+        
+        // Handle edge case where active[head] was false
+        if (!result) {
+            // Return the "slot" we just took by incrementing the count
+            countMutex.lock();
+            count++;
+            countMutex.unlock();
+        }
+        
         return result;
     }
 
     // Check if queue is empty
     bool isEmpty()
     {
-        queueMutex.lock();
+        countMutex.lock();
         bool empty = (count == 0);
-        queueMutex.unlock();
+        countMutex.unlock();
         return empty;
     }
 
     // Check if queue is full
     bool isFull()
     {
-        queueMutex.lock();
-        bool full = (count == QUEUE_SIZE);
-        queueMutex.unlock();
+        countMutex.lock();
+        bool full = (count >= QUEUE_SIZE);
+        countMutex.unlock();
         return full;
+    }
+    
+    // Get current number of items in queue
+    size_t getCount()
+    {
+        countMutex.lock();
+        size_t currentCount = count;
+        countMutex.unlock();
+        return currentCount;
     }
 };

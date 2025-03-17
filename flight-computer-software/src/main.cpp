@@ -564,7 +564,7 @@ void setup()
     flight_fsm.addState(TELEMETRY_CHECK, telemetry_check_entry, nullptr, nullptr);
     flight_fsm.addState(BATTERY_CHECK, battery_check_entry, nullptr, nullptr);
     flight_fsm.addState(SENSOR_CHECK, sensor_check_entry, nullptr, nullptr);
-    flight_fsm.addState(FAULT, fault_entry, fault_do), nullptr;
+    flight_fsm.addState(FAULT, fault_entry, fault_do, nullptr);
     flight_fsm.addState(TERMINATION, termination_entry, nullptr);
     flight_fsm.addState(READY, ready_entry, ready_do, nullptr);
     flight_fsm.addState(ASCENT, nullptr, ascent_do, nullptr);
