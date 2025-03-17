@@ -7,14 +7,22 @@
 #include <SD.h>
 #include <SPI.h>
 
+// Define maximum message length for string messages
+#define MAX_MESSAGE_LENGTH 128
+
+// String message type for sd log queue
+struct StringMessage {
+    char text[MAX_MESSAGE_LENGTH];
+};
+
 const int chipSelect = 10; // SD card chip select pin
 
 Sensors sensors;
 SerialCommunication serialComm = SerialCommunication(Serial1, BoardType::CONTROL_BOARD);
-LogQueue telemetryTransmitQueue = LogQueue();
-LogQueue sdCardLoggingQueue = LogQueue();
+LogQueue<ControlBoardData> telemetryTransmitQueue; // Changed to proper type
+LogQueue<StringMessage> sdCardLoggingQueue;
 
-// Data structures (Data to send and receive)
+// Data structure for telemetry data
 PowerBoardData rxData;
 
 enum State
@@ -43,15 +51,86 @@ char imu_status[3];                         // IMUs status flag
 float altitude;                             // Altitude of the HAB
 float initialAltitude;                      // Initial altitude of the HAB
 float stabilizationStartTime;               // Time to stabilize the HAB
-char status_message[MAX_STATUS_MSG_LENGTH]; // Status message
 
 StateMachine<10, 15> flight_fsm;
 int telemetry_thread_id = -1;
 int data_thread_id = -1;
 
-void addToLog(const char *message)
+void addToLog(const char *format, ...)
 {
-    sdCardLoggingQueue.enqueue(message);
+    char logMessage[MAX_MESSAGE_LENGTH];
+    uint32_t currentTime = millis();
+    
+    // Format the prefix with timestamp
+    int prefixLen = snprintf(logMessage, MAX_MESSAGE_LENGTH, "[%lu ms] ", currentTime);
+    
+    // Format the rest of the message with variable arguments
+    va_list args;
+    va_start(args, format);
+    vsnprintf(logMessage + prefixLen, MAX_MESSAGE_LENGTH - prefixLen, format, args);
+    va_end(args);
+    
+    // Send to log queue
+    StringMessage msg;
+    strncpy(msg.text, logMessage, MAX_MESSAGE_LENGTH - 1);
+    msg.text[MAX_MESSAGE_LENGTH - 1] = '\0';
+    sdCardLoggingQueue.enqueue(msg);
+}
+
+void addToTelemetry(const char *format, ...)
+{
+    // Format the message string with variable arguments
+    char message[MAX_MESSAGE_LENGTH];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(message, MAX_MESSAGE_LENGTH - 1, format, args);
+    va_end(args);
+    message[MAX_MESSAGE_LENGTH - 1] = '\0';
+    
+    // Populate txData with telemetry data from sensors class
+    float xLinearAcceleration, yLinearAcceleration, zLinearAcceleration;
+    sensors.getFusedLinearAcceleration(xLinearAcceleration, yLinearAcceleration, zLinearAcceleration);
+    float xAngularVelocity, yAngularVelocity, zAngularVelocity;
+    sensors.getFusedAngularVelocity(xAngularVelocity, yAngularVelocity, zAngularVelocity);
+    float yawOrientation, pitchOrientation, rollOrientation;
+    sensors.getFusedOrientation(yawOrientation, pitchOrientation, rollOrientation);
+    
+    // Create the telemetry data structure
+    ControlBoardData txData = {
+        .timestamp = millis(),
+        .pressure = sensors.getPressure(),
+        .altitude = sensors.getAltitude(),
+        .temperature = sensors.getTemperature(),
+        .accelX = xLinearAcceleration,
+        .accelY = yLinearAcceleration,
+        .accelZ = zLinearAcceleration,
+        .angularVelocityX = xAngularVelocity,
+        .angularVelocityY = yAngularVelocity,
+        .angularVelocityZ = zAngularVelocity,
+        .orientationYaw = yawOrientation,
+        .orientationPitch = pitchOrientation,
+        .orientationRoll = rollOrientation,
+        .statusMsgLength = strlen(message),
+    };
+    
+    // Copy status message
+    strncpy(txData.statusMsg, message, sizeof(txData.statusMsg) - 1);
+    txData.statusMsg[sizeof(txData.statusMsg) - 1] = '\0';
+    
+    // Copy to rxData for compatibility with existing code
+    strcpy(rxData.statusMsg, message);
+
+    // Add telemetry data directly to queue
+    telemetryTransmitQueue.enqueue(txData);
+
+    // Log telemetry data to SD card - using common format string
+    addToLog(
+        "Telemetry: P=%f, Alt=%f, T=%f, Accel=(%f,%f,%f), AngVel=(%f,%f,%f), Orient=(%f,%f,%f), Status=%s", 
+        txData.pressure, txData.altitude, txData.temperature, 
+        txData.accelX, txData.accelY, txData.accelZ, 
+        txData.angularVelocityX, txData.angularVelocityY, txData.angularVelocityZ, 
+        txData.orientationYaw, txData.orientationPitch, txData.orientationRoll, 
+        txData.statusMsg);
 }
 
 void initialization_entry()
@@ -84,11 +163,7 @@ void initialization_entry()
     noTone(33); // stop playing a note on pin 33
 
     // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Initialization completed at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
-
+    addToLog("Initialization completed");
 }
 
 void telemetry_check_entry()
@@ -114,11 +189,7 @@ void telemetry_check_entry()
     // TODO: Verify GPS (using api)
 
     // Status log
-        // Status log
-        char logMessage[MAX_MESSAGE_LENGTH];
-        uint32_t currentTime = millis();
-        snprintf(logMessage, MAX_MESSAGE_LENGTH, "Telemetry check completed at %lu ms", currentTime);
-        sdCardLoggingQueue.enqueue(logMessage);
+    addToLog("Telemetry check completed");
 }
 
 void battery_check_entry()
@@ -126,11 +197,7 @@ void battery_check_entry()
     // Verify battery (using api)
     // Print status
     // Status log
-    // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Battery check completed at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
+    addToLog("Battery check completed");
 }
 
 void sensor_check_entry()
@@ -173,10 +240,7 @@ void sensor_check_entry()
     sensors.startDataCollection();
     initialAltitude = sensors.getAltitude();
     // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Sensor check completed at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
+    addToLog("Sensor check completed");
 }
 
 void fault_entry()
@@ -188,11 +252,7 @@ void fault_entry()
     // Stop all sensors
     // Print status
     // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    // TODO - add specific fault messages to the SD card logging, currently just a placeholder message
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Fault detected at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
+    addToLog("Fault detected");
 }
 
 void fault_do()
@@ -211,11 +271,7 @@ void fault_do()
     // Abort mission
     aborted = true;
     // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Fault timeout reached at %lu ms, aborting mission", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
-
+    addToLog("Fault timeout reached, aborting mission");
 }
 
 void termination_entry()
@@ -223,10 +279,7 @@ void termination_entry()
     // Print status
     stop_all_threads();
     // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Termination completed at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
+    addToLog("Termination completed");
 }
 
 void ready_entry()
@@ -239,20 +292,14 @@ void ready_do()
 {
     // Compute altitude ascended using pressure sensor
     altitude = sensors.getAltitude();
-    // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Ready state reached at %lu ms, current altitude: %f", currentTime, altitude);
-    sdCardLoggingQueue.enqueue(logMessage);
+    // Status log with data
+    addToLog("Ready state reached, current altitude: %f", altitude);
 }
 
 void ascent_do()
 {
     // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Ascent state reached at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
+    addToLog("Ascent state reached");
 }
 
 void stabilization_do()
@@ -263,12 +310,8 @@ void stabilization_do()
 
     // Control algorithm
     // Output to motors
-    // Status log - For now just a placeholder message, will be updated with actual status messages
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Stabilization state reached at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
-
+    // Status log
+    addToLog("Stabilization state reached");
 }
 
 void descent_entry()
@@ -276,10 +319,7 @@ void descent_entry()
     // Stop all motors
     // Release payload
     // Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Descent state reached at %lu ms", currentTime);
-    sdCardLoggingQueue.enqueue(logMessage);
+    addToLog("Descent state reached");
 }
 
 void descent_do()
@@ -295,12 +335,8 @@ void descent_do()
         // Touchdown
         // TODO
     }
-    // TODO - provide specific status messages for descent state
-    //Status log
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Descent state reached at %lu ms, current altitude: %f", currentTime, altitude);
-    sdCardLoggingQueue.enqueue(logMessage);
+    // Status log with data
+    addToLog("Descent state, current altitude: %f", altitude);
 }
 
 bool is_initialized()
@@ -356,46 +392,6 @@ bool has_battery()
     return battery_status > 0;
 }
 
-void log_data(const char *currentState)
-{
-    // Populate txData with telemetry data from sensors class
-    // To be called at the end of the states that perform logging as well
-    float xLinearAcceleration, yLinearAcceleration, zLinearAcceleration;
-    sensors.getFusedLinearAcceleration(xLinearAcceleration, yLinearAcceleration, zLinearAcceleration);
-    float xAngularVelocity, yAngularVelocity, zAngularVelocity;
-    sensors.getFusedAngularVelocity(xAngularVelocity, yAngularVelocity, zAngularVelocity);
-    float yawOrientation, pitchOrientation, rollOrientation;
-    sensors.getFusedOrientation(yawOrientation, pitchOrientation, rollOrientation);
-    ControlBoardData txData;
-    txData = {
-        .timestamp = millis(),
-        .pressure = sensors.getPressure(),
-        .altitude = sensors.getAltitude(),
-        .temperature = sensors.getTemperature(),
-        .accelX = xLinearAcceleration,
-        .accelY = yLinearAcceleration,
-        .accelZ = zLinearAcceleration,
-        .angularVelocityX = xAngularVelocity,
-        .angularVelocityY = yAngularVelocity,
-        .angularVelocityZ = zAngularVelocity,
-        .orientationYaw = yawOrientation,
-        .orientationPitch = pitchOrientation,
-        .orientationRoll = rollOrientation,
-        .statusMsgLength = strlen(currentState),
-    };
-    strcpy(rxData.statusMsg, currentState);
-
-    // Add telemetry data to queue for transmission by converting it to a char array
-    char telemetryData[sizeof(ControlBoardData)];
-    memcpy(telemetryData, &txData, sizeof(ControlBoardData));
-    telemetryTransmitQueue.enqueue(telemetryData);
-
-    // Log telemetry data to SD card
-    char logMessage[MAX_MESSAGE_LENGTH];
-    snprintf(logMessage, MAX_MESSAGE_LENGTH, "Timestamp: %lu, Pressure: %f, Altitude: %f, Temperature: %f, Acceleration: (%f, %f, %f), Angular Velocity: (%f, %f, %f), Orientation: (%f, %f, %f), Status Message: %s", txData.timestamp, txData.pressure, txData.altitude, txData.temperature, txData.accelX, txData.accelY, txData.accelZ, txData.angularVelocityX, txData.angularVelocityY, txData.angularVelocityZ, txData.orientationYaw, txData.orientationPitch, txData.orientationRoll, txData.statusMsg);
-    sdCardLoggingQueue.enqueue(logMessage);
-}
-
 void telemetry_thread()
 {
     while (true)
@@ -407,18 +403,18 @@ void telemetry_thread()
             // Process received data
             rxData = tempData;
         }
-        // dequeue data from the queue, convert it to the struct, and send it
-        char telemetryData[sizeof(ControlBoardData)];
-        if (telemetryTransmitQueue.dequeue(telemetryData, sizeof(telemetryData)))
+        
+        // Dequeue telemetry data and send it directly
+        ControlBoardData txData;
+        if (telemetryTransmitQueue.dequeue(txData))
         {
-            ControlBoardData txData;
-            memcpy(&txData, telemetryData, sizeof(ControlBoardData));
             // Send telemetry data
             if (serialComm.sendData(txData))
             {
                 Serial.println("Telemetry data sent successfully.");
             }
         }
+        
         // In case the queue is empty
         threads.yield();
     }
@@ -508,9 +504,9 @@ void data_collection_thread()
 {
     while (true)
     {
-        char logToWrite[MAX_MESSAGE_LENGTH];
+        StringMessage logMessage;
 
-        if (sdCardLoggingQueue.dequeue(logToWrite, MAX_MESSAGE_LENGTH))
+        if (sdCardLoggingQueue.dequeue(logMessage))
         {
             // Dequeuing most recent data to place on the SD card
             // open the file.
@@ -519,18 +515,18 @@ void data_collection_thread()
             // if the file is available, write to it:
             if (dataFile)
             {
-                dataFile.println(logToWrite);
+                dataFile.println(logMessage.text);
                 dataFile.close();
                 // print to the serial port too:
-                Serial.println(logToWrite);
+                Serial.println(logMessage.text);
             }
             else
             {
                 // if the file isn't open, pop up an error:
                 Serial.println("Error opening datalog.txt");
             }
-            threads.yield();
         }
+        threads.yield();
     }
 }
 
