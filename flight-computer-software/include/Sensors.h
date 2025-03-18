@@ -56,6 +56,8 @@ struct SensorDataIMU
 class Sensors
 {
 public:
+  SensorStatus sensorStatus;
+
   SensorDataIMU imu1Data;
   SensorDataIMU imu2Data;
   SensorDataIMU imu3Data;
@@ -121,9 +123,6 @@ private:
   BNO080 imu2;
   BNO080 imu3;
 
-  // Track the status of all sensors
-  SensorStatus sensorStatus;
-
   uint16_t interval;
 
   int altimeterSensorThreadId;
@@ -144,7 +143,7 @@ private:
 
   bool fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data);
 
-  void invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data);
+  bool invalidateIMUData(unsigned long lastImuUpdateTime, SensorDataIMU *data);
 
   // Thread function wrappers for TeensyThreads
   static void altimeterSensorThreadWrapper(void *sensorObj);

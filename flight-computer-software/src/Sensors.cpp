@@ -83,29 +83,18 @@ bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
   return false;
 }
 
-void Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data)
+bool Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, SensorDataIMU *data)
 {
   if (millis() - lastImuUpdateTime > IMU_TIMEOUT)
   {
-    // First try a soft reset
-    imu->softReset();
-    // Mark the appropriate sensor as invalid in the status
-    if (imu == &imu1)
-      sensorStatus.imu1 = false;
-    else if (imu == &imu2)
-      sensorStatus.imu2 = false;
-    else if (imu == &imu3)
-      sensorStatus.imu3 = false;
-    // Call begin to reinitialize the sensors
-    begin(sensorStatus);
-    // Re-enable reports after restart
-    enableReportsForIMU(imu, interval);
     // Mark data as invalid
     data->linearAccuracy = -1;
     data->gyroAccuracy = -1;
     data->rotationAccuracy = -1;
     data->orientationAccuracy = -1;
+    return true;
   }
+  return false;
 }
 
 void Sensors::altimeterSensorThreadWrapper(void *sensorObj)
@@ -133,28 +122,19 @@ void Sensors::altimeterSensorThreadImpl()
   lastAltimeterUpdateTime = millis(); // Initialize last update time
   while (running)
   {
-    // Get pressure
-    bool fetchedAltimeter = altimeter.readDigitalValue();
-    if (fetchedAltimeter)
+    if (sensorStatus.pressure && altimeter.readDigitalValue())
     {
       lastAltimeterUpdateTime = millis();
       pressure = altimeter.getPressure();
-      // Get altitude
       altitude = altimeter.getAltitude();
+      sensorStatus.pressure = true;
     }
-    else
+    else if (millis() - lastAltimeterUpdateTime > ALTIMETER_TIMEOUT)
     {
-      if (millis() - lastAltimeterUpdateTime > ALTIMETER_TIMEOUT)
-      {
-        // Mark the altimeter as invalid
-        sensorStatus.pressure = false;
-        // Attempt to restart the sensor via begin
-        begin(sensorStatus);
-        altitude = -10000000.0; // set to -10000000.0 if no data is fetched
-      }
+      // Mark the altimeter as invalid
+      altitude = -10000000.0; // set to -10000000.0 if no data is fetched
+      sensorStatus.pressure = altimeter.begin(); // Reinitialize the altimeter;
     }
-
-    // Wait before next reading
     threads.delay(interval);
   }
 }
@@ -169,18 +149,13 @@ void Sensors::temperatureSensorThreadImpl()
     if (!isnan(temperature))
     {
       lastTemperatureUpdateTime = millis();
+      sensorStatus.temperature = true;
     }
-    else
+    else if (millis() - lastTemperatureUpdateTime > TEMPERATURE_TIMEOUT)
     {
-      if (millis() - lastTemperatureUpdateTime > TEMPERATURE_TIMEOUT)
-      {
-        // Mark the temperature probe as invalid
-        sensorStatus.temperature = false;
-        // Attempt to restart the sensor via begin
-        begin(sensorStatus);
-      }
+      // Mark the temperature probe as invalid
+      sensorStatus.temperature = false;
     }
-    // Wait before next reading
     threads.delay(interval);
   }
 }
@@ -192,23 +167,27 @@ void Sensors::imuSensorThreadImpl()
   lastImu3UpdateTime = millis();
   while (running)
   {
-    // Collect IMU data
-    bool fetchedIMU1 = fetchDataFromIMU(&imu1, &imu1Data);
-    bool fetchedIMU2 = fetchDataFromIMU(&imu2, &imu2Data);
-    bool fetchedIMU3 = fetchDataFromIMU(&imu3, &imu3Data);
-    // Update last update time
-    if (fetchedIMU1)
+    if (fetchDataFromIMU(&imu1, &imu1Data)){
       lastImu1UpdateTime = millis();
-    else
-      invalidateIMUData(lastImu1UpdateTime, &imu1, &imu1Data);
-    if (fetchedIMU2)
+      sensorStatus.imu1 = true;
+    }
+    else if (invalidateIMUData(lastImu1UpdateTime, &imu1Data))
+      sensorStatus.imu1 = false;
+
+    if (fetchDataFromIMU(&imu2, &imu2Data)){
       lastImu2UpdateTime = millis();
-    else
-      invalidateIMUData(lastImu2UpdateTime, &imu2, &imu2Data);
-    if (fetchedIMU3)
+      sensorStatus.imu2 = true;
+    }
+    else if (invalidateIMUData(lastImu2UpdateTime, &imu2Data))
+      sensorStatus.imu2 = false;
+
+    if (fetchDataFromIMU(&imu3, &imu3Data)){
       lastImu3UpdateTime = millis();
-    else
-      invalidateIMUData(lastImu3UpdateTime, &imu3, &imu3Data);
+      sensorStatus.imu3 = true;
+    }
+    else if (invalidateIMUData(lastImu3UpdateTime, &imu3Data))
+      sensorStatus.imu3 = false;
+
     threads.yield();
   }
 }
