@@ -29,6 +29,11 @@ library to provide the following data :
 // The 'nominal' 0-degrees-C resistance of the sensor: 100.0 for PT100
 #define RNOMINAL 100.0
 
+// Timeout constants for sensor data (in milliseconds)
+#define ALTIMETER_TIMEOUT 500
+#define TEMPERATURE_TIMEOUT 500
+#define IMU_TIMEOUT 1000
+
 struct SensorStatus
 {
   bool pressure;
@@ -64,7 +69,7 @@ public:
   // returns: SensorStatus
   SensorStatus begin(SensorStatus status);
 
-  void enableReports(uint16_t interval=50);
+  void enableReports(uint16_t interval = 50);
 
   void startDataCollection();
 
@@ -116,6 +121,9 @@ private:
   BNO080 imu2;
   BNO080 imu3;
 
+  // Track the status of all sensors
+  SensorStatus sensorStatus;
+
   uint16_t interval;
 
   int altimeterSensorThreadId;
@@ -135,8 +143,8 @@ private:
   void enableReportsForIMU(BNO080 *imu, uint16_t interval);
 
   bool fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data);
-  
-  void invalidateIMUData(unsigned long lastImuUpdateTime,BNO080* imu, SensorDataIMU* data, unsigned long timeout=1000);
+
+  void invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data);
 
   // Thread function wrappers for TeensyThreads
   static void altimeterSensorThreadWrapper(void *sensorObj);

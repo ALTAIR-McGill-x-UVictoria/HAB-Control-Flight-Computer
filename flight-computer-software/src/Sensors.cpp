@@ -36,6 +36,7 @@ SensorStatus Sensors::begin(SensorStatus status)
     status.pressure = altimeter.begin();
   if (!status.temperature)
     status.temperature = temperatureProbe.begin(MAX31865_3WIRE);
+  sensorStatus = status; // update the with the current status
   return status;
 }
 
@@ -82,12 +83,24 @@ bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
   return false;
 }
 
-void Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data, unsigned long timeout)
+void Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, BNO080 *imu, SensorDataIMU *data)
 {
-  if (millis() - lastImuUpdateTime > timeout)
+  if (millis() - lastImuUpdateTime > IMU_TIMEOUT)
   {
+    // First try a soft reset
     imu->softReset();
+    // Mark the appropriate sensor as invalid in the status
+    if (imu == &imu1)
+      sensorStatus.imu1 = false;
+    else if (imu == &imu2)
+      sensorStatus.imu2 = false;
+    else if (imu == &imu3)
+      sensorStatus.imu3 = false;
+    // Call begin to reinitialize the sensors
+    begin(sensorStatus);
+    // Re-enable reports after restart
     enableReportsForIMU(imu, interval);
+    // Mark data as invalid
     data->linearAccuracy = -1;
     data->gyroAccuracy = -1;
     data->rotationAccuracy = -1;
@@ -118,7 +131,6 @@ void Sensors::computeRelativeLinearThreadWrapper(void *sensorObj)
 void Sensors::altimeterSensorThreadImpl()
 {
   lastAltimeterUpdateTime = millis(); // Initialize last update time
-  unsigned long altimeterTimeout = 500;         // Timeout for sensor data
   while (running)
   {
     // Get pressure
@@ -129,12 +141,16 @@ void Sensors::altimeterSensorThreadImpl()
       pressure = altimeter.getPressure();
       // Get altitude
       altitude = altimeter.getAltitude();
-    } else
+    }
+    else
     {
-      if (millis() - lastAltimeterUpdateTime > altimeterTimeout)
+      if (millis() - lastAltimeterUpdateTime > ALTIMETER_TIMEOUT)
       {
-        altimeter.begin(); // attempt to restart the sensor
-        altitude = -10000000.0; // set to -1.0 if no data is fetched
+        // Mark the altimeter as invalid
+        sensorStatus.pressure = false;
+        // Attempt to restart the sensor via begin
+        begin(sensorStatus);
+        altitude = -10000000.0; // set to -10000000.0 if no data is fetched
       }
     }
 
@@ -145,10 +161,25 @@ void Sensors::altimeterSensorThreadImpl()
 
 void Sensors::temperatureSensorThreadImpl()
 {
+  unsigned long lastTemperatureUpdateTime = millis();
   while (running)
   {
-    // Get temperature
+    // Get temperature and check if it's valid (not NaN)
     temperature = temperatureProbe.temperature(RNOMINAL, RREF);
+    if (!isnan(temperature))
+    {
+      lastTemperatureUpdateTime = millis();
+    }
+    else
+    {
+      if (millis() - lastTemperatureUpdateTime > TEMPERATURE_TIMEOUT)
+      {
+        // Mark the temperature probe as invalid
+        sensorStatus.temperature = false;
+        // Attempt to restart the sensor via begin
+        begin(sensorStatus);
+      }
+    }
     // Wait before next reading
     threads.delay(interval);
   }
