@@ -132,7 +132,7 @@ void Sensors::altimeterSensorThreadImpl()
     else if (millis() - lastAltimeterUpdateTime > ALTIMETER_TIMEOUT)
     {
       // Mark the altimeter as invalid
-      altitude = -10000000.0; // set to -10000000.0 if no data is fetched
+      altitude = -10000000.0;                    // set to -10000000.0 if no data is fetched
       sensorStatus.pressure = altimeter.begin(); // Reinitialize the altimeter;
     }
     threads.delay(interval);
@@ -160,33 +160,30 @@ void Sensors::temperatureSensorThreadImpl()
   }
 }
 
+// Helper method to process a single IMU
+void Sensors::processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &lastUpdateTime, bool &statusFlag)
+{
+  if (fetchDataFromIMU(&imu, &data))
+  {
+    lastUpdateTime = millis();
+    statusFlag = true;
+  }
+  else if (invalidateIMUData(lastUpdateTime, &data))
+  {
+    statusFlag = false;
+  }
+}
+
 void Sensors::imuSensorThreadImpl()
 {
-  lastImu1UpdateTime = millis();
-  lastImu2UpdateTime = millis();
-  lastImu3UpdateTime = millis();
+  lastImu1UpdateTime = lastImu2UpdateTime = lastImu3UpdateTime = millis();
+
   while (running)
   {
-    if (fetchDataFromIMU(&imu1, &imu1Data)){
-      lastImu1UpdateTime = millis();
-      sensorStatus.imu1 = true;
-    }
-    else if (invalidateIMUData(lastImu1UpdateTime, &imu1Data))
-      sensorStatus.imu1 = false;
-
-    if (fetchDataFromIMU(&imu2, &imu2Data)){
-      lastImu2UpdateTime = millis();
-      sensorStatus.imu2 = true;
-    }
-    else if (invalidateIMUData(lastImu2UpdateTime, &imu2Data))
-      sensorStatus.imu2 = false;
-
-    if (fetchDataFromIMU(&imu3, &imu3Data)){
-      lastImu3UpdateTime = millis();
-      sensorStatus.imu3 = true;
-    }
-    else if (invalidateIMUData(lastImu3UpdateTime, &imu3Data))
-      sensorStatus.imu3 = false;
+    // Process each IMU using the helper method
+    processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, sensorStatus.imu1);
+    processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, sensorStatus.imu2);
+    processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, sensorStatus.imu3);
 
     threads.yield();
   }

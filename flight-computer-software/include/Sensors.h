@@ -32,7 +32,7 @@ library to provide the following data :
 // Timeout constants for sensor data (in milliseconds)
 #define ALTIMETER_TIMEOUT 500
 #define TEMPERATURE_TIMEOUT 500
-#define IMU_TIMEOUT 1000
+#define IMU_TIMEOUT 500
 
 struct SensorStatus
 {
@@ -165,4 +165,7 @@ private:
   // params: std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy={}
   // returns: float
   float sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy = {});
+
+  // Helper method to process a single IMU
+  void processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &lastUpdateTime, bool &statusFlag);
 };
