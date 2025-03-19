@@ -143,8 +143,6 @@ private:
 
   bool fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data);
 
-  bool invalidateIMUData(unsigned long lastImuUpdateTime, SensorDataIMU *data);
-
   // Thread function wrappers for TeensyThreads
   static void altimeterSensorThreadWrapper(void *sensorObj);
   static void temperatureSensorThreadWrapper(void *sensorObj);

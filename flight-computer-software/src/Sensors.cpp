@@ -83,20 +83,6 @@ bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
   return false;
 }
 
-bool Sensors::invalidateIMUData(unsigned long lastImuUpdateTime, SensorDataIMU *data)
-{
-  if (millis() - lastImuUpdateTime > IMU_TIMEOUT)
-  {
-    // Mark data as invalid
-    data->linearAccuracy = -1;
-    data->gyroAccuracy = -1;
-    data->rotationAccuracy = -1;
-    data->orientationAccuracy = -1;
-    return true;
-  }
-  return false;
-}
-
 void Sensors::altimeterSensorThreadWrapper(void *sensorObj)
 {
   ((Sensors *)sensorObj)->altimeterSensorThreadImpl();
@@ -134,6 +120,7 @@ void Sensors::altimeterSensorThreadImpl()
       // Mark the altimeter as invalid
       altitude = -10000000.0;                    // set to -10000000.0 if no data is fetched
       sensorStatus.pressure = altimeter.begin(); // Reinitialize the altimeter;
+      lastAltimeterUpdateTime = millis();
     }
     threads.delay(interval);
   }
@@ -148,43 +135,47 @@ void Sensors::temperatureSensorThreadImpl()
     temperature = temperatureProbe.temperature(RNOMINAL, RREF);
     if (!isnan(temperature))
     {
-      lastTemperatureUpdateTime = millis();
       sensorStatus.temperature = true;
+      lastTemperatureUpdateTime = millis();
     }
     else if (millis() - lastTemperatureUpdateTime > TEMPERATURE_TIMEOUT)
     {
       // Mark the temperature probe as invalid
       sensorStatus.temperature = false;
+      lastTemperatureUpdateTime = millis();
     }
+
     threads.delay(interval);
   }
 }
 
-// Helper method to process a single IMU
 void Sensors::processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &lastUpdateTime, bool &statusFlag)
 {
-  if (fetchDataFromIMU(&imu, &data))
+  if (statusFlag && fetchDataFromIMU(&imu, &data))
   {
     lastUpdateTime = millis();
     statusFlag = true;
   }
-  else if (invalidateIMUData(lastUpdateTime, &data))
+  else if (millis() - lastUpdateTime > IMU_TIMEOUT)
   {
+    // Mark data as invalid
+    data.linearAccuracy = -1;
+    data.gyroAccuracy = -1;
+    data.rotationAccuracy = -1;
+    data.orientationAccuracy = -1;
     statusFlag = false;
+    lastUpdateTime = millis();
   }
 }
 
 void Sensors::imuSensorThreadImpl()
 {
   lastImu1UpdateTime = lastImu2UpdateTime = lastImu3UpdateTime = millis();
-
   while (running)
   {
-    // Process each IMU using the helper method
     processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, sensorStatus.imu1);
     processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, sensorStatus.imu2);
     processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, sensorStatus.imu3);
-
     threads.yield();
   }
 }
