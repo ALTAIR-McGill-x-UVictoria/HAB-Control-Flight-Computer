@@ -56,7 +56,7 @@ struct SensorDataIMU
 class Sensors
 {
 public:
-  SensorStatus sensorStatus;
+  SensorStatus status = {false, false, false, false, false};
 
   SensorDataIMU imu1Data;
   SensorDataIMU imu2Data;
@@ -67,13 +67,11 @@ public:
   volatile float xRelativePosition, yRelativePosition, zRelativePosition;
 
   // Initializes the sensors
-  // params: SensorStatus status
-  // returns: SensorStatus
-  SensorStatus begin(SensorStatus status);
+  void begin();
 
-  void enableReports(uint16_t interval = 50);
-
-  void startDataCollection();
+  //enables the reports for the sensors, starts the threads
+  //params: uint16_t interval
+  void start(uint16_t interval = 20);
 
   void stopDataCollection();
 

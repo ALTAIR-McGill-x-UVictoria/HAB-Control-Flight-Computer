@@ -20,24 +20,22 @@ library to provide the following data :
 
 #include "Sensors.h"
 
-SensorStatus Sensors::begin(SensorStatus status)
+void Sensors::begin()
 {
   if (!status.imu1 && !status.imu2)
     Wire1.begin();
   if (!status.imu3)
     Wire2.begin();
   if (!status.imu1)
-    status.imu1 = imu1.begin(0x4A, Wire1, -1);
+  status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
-    status.imu2 = imu2.begin(0x4B, Wire1, -1);
+  status.imu2 = imu2.begin(0x4B, Wire1, -1);
   if (!status.imu3)
-    status.imu3 = imu3.begin(0x4A, Wire2, -1);
+  status.imu3 = imu3.begin(0x4A, Wire2, -1);
   if (!status.pressure)
-    status.pressure = altimeter.begin();
+  status.pressure = altimeter.begin();
   if (!status.temperature)
-    status.temperature = temperatureProbe.begin(MAX31865_3WIRE);
-  sensorStatus = status; // update the with the current status
-  return status;
+  status.temperature = temperatureProbe.begin(MAX31865_3WIRE);
 }
 
 void Sensors::enableReportsForIMU(BNO080 *imu, uint16_t interval)
@@ -45,16 +43,6 @@ void Sensors::enableReportsForIMU(BNO080 *imu, uint16_t interval)
   imu->enableLinearAccelerometer(interval); // m/s^2 no gravity
   imu->enableGyro(interval);                // rad/s
   imu->enableRotationVector(interval);      // quat or yawOrientation/pitchOrientation/rollOrientation rad
-}
-
-void Sensors::enableReports(uint16_t interval)
-{
-  this->interval = interval;
-  Wire1.setClock(400000);
-  Wire2.setClock(400000);
-  enableReportsForIMU(&imu1, interval);
-  enableReportsForIMU(&imu2, interval);
-  enableReportsForIMU(&imu3, interval);
 }
 
 bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
@@ -108,18 +96,18 @@ void Sensors::altimeterSensorThreadImpl()
   lastAltimeterUpdateTime = millis(); // Initialize last update time
   while (running)
   {
-    if (sensorStatus.pressure && altimeter.readDigitalValue())
+    if (status.pressure && altimeter.readDigitalValue())
     {
       lastAltimeterUpdateTime = millis();
       pressure = altimeter.getPressure();
       altitude = altimeter.getAltitude();
-      sensorStatus.pressure = true;
+      status.pressure = true;
     }
     else if (millis() - lastAltimeterUpdateTime > ALTIMETER_TIMEOUT)
     {
       // Mark the altimeter as invalid
       altitude = -10000000.0;                    // set to -10000000.0 if no data is fetched
-      sensorStatus.pressure = altimeter.begin(); // Reinitialize the altimeter;
+      status.pressure = altimeter.begin(); // Reinitialize the altimeter;
       lastAltimeterUpdateTime = millis();
     }
     threads.delay(interval);
@@ -135,13 +123,13 @@ void Sensors::temperatureSensorThreadImpl()
     temperature = temperatureProbe.temperature(RNOMINAL, RREF);
     if (!isnan(temperature))
     {
-      sensorStatus.temperature = true;
+      status.temperature = true;
       lastTemperatureUpdateTime = millis();
     }
     else if (millis() - lastTemperatureUpdateTime > TEMPERATURE_TIMEOUT)
     {
       // Mark the temperature probe as invalid
-      sensorStatus.temperature = false;
+      status.temperature = false;
       lastTemperatureUpdateTime = millis();
     }
 
@@ -173,9 +161,9 @@ void Sensors::imuSensorThreadImpl()
   lastImu1UpdateTime = lastImu2UpdateTime = lastImu3UpdateTime = millis();
   while (running)
   {
-    processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, sensorStatus.imu1);
-    processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, sensorStatus.imu2);
-    processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, sensorStatus.imu3);
+    processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, status.imu1);
+    processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, status.imu2);
+    processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, status.imu3);
     threads.yield();
   }
 }
@@ -202,9 +190,19 @@ void Sensors::computeRelativeLinearThreadImpl()
   }
 }
 
-void Sensors::startDataCollection()
+void Sensors::start(uint16_t interval)
 {
   running = true;
+  this->interval = interval;
+  Wire1.setClock(400000);
+  Wire2.setClock(400000);
+  threads.delay(100);
+  enableReportsForIMU(&imu1, interval);
+  threads.delay(100);
+  enableReportsForIMU(&imu2, interval);
+  threads.delay(100);
+  enableReportsForIMU(&imu3, interval);
+  threads.delay(100);
   altimeterSensorThreadId = threads.addThread(altimeterSensorThreadWrapper, this);
   temperatureSensorThreadId = threads.addThread(temperatureSensorThreadWrapper, this);
   imuSensorThreadId = threads.addThread(imuSensorThreadWrapper, this);

@@ -2,28 +2,18 @@
 #include <TeensyThreads.h>
 #include "StateMachine.h"
 #include "Sensors.h"
-#include "SerialCommunication.h"
-#include "LogQueue.h"
-#include <SD.h>
 #include <SPI.h>
+#include <SD.h>
+#include "Logging.h"
 
-// Define maximum message length for string messages
-#define MAX_MESSAGE_LENGTH 128
-
-// String message type for sd log queue
-struct StringMessage {
-    char text[MAX_MESSAGE_LENGTH];
-};
-
-const int chipSelect = 10; // SD card chip select pin
+#define MAX_SENSOR_RETRIES 20       // Maximum number of retries for sensor initialization
+#define FAULT_TIMEOUT_DELAY 2000    // Delay for the fault state before triggering the timeout
+#define SPEAKER_PIN 33
 
 Sensors sensors;
 SerialCommunication serialComm = SerialCommunication(Serial1, BoardType::CONTROL_BOARD);
 LogQueue<ControlBoardData> telemetryTransmitQueue; // Changed to proper type
 LogQueue<StringMessage> sdCardLoggingQueue;
-
-// Data structure for telemetry data
-PowerBoardData rxData;
 
 enum State
 {
@@ -41,155 +31,78 @@ enum State
 
 bool initialized;                           // Initialization status flag
 bool aborted;                               // Mission abortion status flag
-int lastTime;                               // Used for timeouts and delays
+unsigned long last_time;                    // Used for timeouts and delays
 char telemetry_status;                      // Telemetry status flag
 char gps_status;                            // GPS status flag
 char battery_status;                        // Battery status flag
-char altimeter_status;                      // Altimeter status flag
-char temperature_status;                    // Temperature status flag
-char imu_status[3];                         // IMUs status flag
-float altitude;                             // Altitude of the HAB
-float initialAltitude;                      // Initial altitude of the HAB
-float stabilizationStartTime;               // Time to stabilize the HAB
+float prev_altitude;                        // Last altitude for vertical speed calculations
+float vertical_speed;                       // Rate of descent of the HAB
 
 StateMachine<10, 15> flight_fsm;
 int telemetry_thread_id = -1;
 int data_thread_id = -1;
 
-void addToLog(const char *format, ...)
-{
-    char logMessage[MAX_MESSAGE_LENGTH];
-    uint32_t currentTime = millis();
-    
-    // Format the prefix with timestamp
-    int prefixLen = snprintf(logMessage, MAX_MESSAGE_LENGTH, "[%lu ms] ", currentTime);
-    
-    // Format the rest of the message with variable arguments
-    va_list args;
-    va_start(args, format);
-    vsnprintf(logMessage + prefixLen, MAX_MESSAGE_LENGTH - prefixLen, format, args);
-    va_end(args);
-    
-    // Send to log queue
-    StringMessage msg;
-    strncpy(msg.text, logMessage, MAX_MESSAGE_LENGTH - 1);
-    msg.text[MAX_MESSAGE_LENGTH - 1] = '\0';
-    sdCardLoggingQueue.enqueue(msg);
-}
-
-void addToTelemetry(const char *format, ...)
-{
-    // Format the message string with variable arguments
-    char message[MAX_MESSAGE_LENGTH];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(message, MAX_MESSAGE_LENGTH - 1, format, args);
-    va_end(args);
-    message[MAX_MESSAGE_LENGTH - 1] = '\0';
-    
-    // Populate txData with telemetry data from sensors class
-    float xLinearAcceleration, yLinearAcceleration, zLinearAcceleration;
-    sensors.getFusedLinearAcceleration(xLinearAcceleration, yLinearAcceleration, zLinearAcceleration);
-    float xAngularVelocity, yAngularVelocity, zAngularVelocity;
-    sensors.getFusedAngularVelocity(xAngularVelocity, yAngularVelocity, zAngularVelocity);
-    float yawOrientation, pitchOrientation, rollOrientation;
-    sensors.getFusedOrientation(yawOrientation, pitchOrientation, rollOrientation);
-    
-    // Create the telemetry data structure
-    ControlBoardData txData = {
-        .timestamp = millis(),
-        .pressure = sensors.getPressure(),
-        .altitude = sensors.getAltitude(),
-        .temperature = sensors.getTemperature(),
-        .accelX = xLinearAcceleration,
-        .accelY = yLinearAcceleration,
-        .accelZ = zLinearAcceleration,
-        .angularVelocityX = xAngularVelocity,
-        .angularVelocityY = yAngularVelocity,
-        .angularVelocityZ = zAngularVelocity,
-        .orientationYaw = yawOrientation,
-        .orientationPitch = pitchOrientation,
-        .orientationRoll = rollOrientation,
-        .statusMsgLength = strlen(message),
-    };
-    
-    // Copy status message
-    strncpy(txData.statusMsg, message, sizeof(txData.statusMsg) - 1);
-    txData.statusMsg[sizeof(txData.statusMsg) - 1] = '\0';
-    
-    // Copy to rxData for compatibility with existing code
-    strcpy(rxData.statusMsg, message);
-
-    // Add telemetry data directly to queue
-    telemetryTransmitQueue.enqueue(txData);
-
-    // Log telemetry data to SD card - using common format string
-    addToLog(
-        "Telemetry: P=%f, Alt=%f, T=%f, Accel=(%f,%f,%f), AngVel=(%f,%f,%f), Orient=(%f,%f,%f), Status=%s", 
-        txData.pressure, txData.altitude, txData.temperature, 
-        txData.accelX, txData.accelY, txData.accelZ, 
-        txData.angularVelocityX, txData.angularVelocityY, txData.angularVelocityZ, 
-        txData.orientationYaw, txData.orientationPitch, txData.orientationRoll, 
-        txData.statusMsg);
-}
-
 void initialization_entry()
 {
     // Init data storage
-    Serial.begin(9600);
-    while (!Serial)
-    {
-        ; // wait for serial port to connect.
-    }
-
-    Serial.print("Initializing SD card...");
-    // see if the card is present and can be initialized:
-    if (!SD.begin(chipSelect))
-    {
-        Serial.println("Card failed, or not present");
-        while (1)
-        {
-            // No SD card, so don't do anything more - stay stuck here
-        }
+    Serial.print("Initializing SD card... ");
+    if (!SD.begin(BUILTIN_SDCARD)) {
+        Serial.println("Card failed, or not present.");
+        initialized = false;
+        return;
     }
     Serial.println("card initialized.");
 
-    // Init libs and models
-    // TODO
+    // TODO: Init libs and models
 
-    // Activation beep- PWM tone on pin33 of teensy
-    tone(33, 700, 500); // tone(uint8_t pin, uint16_t frequency, uint32_t duration)
-    delay(500);
-    noTone(33); // stop playing a note on pin 33
+    // Activation beep
+    // tone(uint8_t pin, uint16_t frequency, uint32_t duration)
+    tone(SPEAKER_PIN, 700, 500);
+    threads.delay(500);
+    noTone(SPEAKER_PIN);
 
-    // Status log
-    addToLog("Initialization completed");
+    emitLog("Initialization completed.");
 }
 
 void telemetry_check_entry()
 {
     // Init serial telemetry api
     serialComm.begin();
+    
     // Verify connection (assuming manually verification through console output on groundstation)
-    int retry_counter = 0;
-    while (retry_counter < 5)
+    emitTelemetry(sensors, "Telemetry check...");
+    ControlBoardData txData;
+    if (telemetryTransmitQueue.dequeue(txData))
     {
-        // Status printing within the verifyConnection function
-        if (serialComm.verifyConnection())
+        // Send telemetry data
+        if (serialComm.sendData(txData))
         {
-            telemetry_status = 1;
-            break;
-        }
-        else
-        {
-            telemetry_status = 0;
-            retry_counter++;
+            emitLog("Telemetry data sent: %s", txData.statusMsg);
         }
     }
+
+    PowerBoardData tempData;
+    if (serialComm.receiveData(tempData, 30000))
+    {
+        rxData = tempData;
+        emitLog("Telemetry data received: %s", rxData.statusMsg);
+    }
+
+    emitTelemetry(sensors, "Telemetry check...");
+    ControlBoardData txData;
+    if (telemetryTransmitQueue.dequeue(txData))
+    {
+        // Send telemetry data
+        if (serialComm.sendData(txData))
+        {
+            emitLog("Telemetry data sent: %s", txData.statusMsg);
+        }
+    }
+    
     // TODO: Verify GPS (using api)
 
     // Status log
-    addToLog("Telemetry check completed");
+    emitLog("Telemetry check completed");
 }
 
 void battery_check_entry()
@@ -197,50 +110,27 @@ void battery_check_entry()
     // Verify battery (using api)
     // Print status
     // Status log
-    addToLog("Battery check completed");
+    emitLog("Battery check completed");
 }
 
 void sensor_check_entry()
 {
-    // Init sensors (altimeter, imu, temperature)
-
-    // Verify altimeter sensor
-    // Verify temperature sensor
-    // Verify imu sensors
-    // Print status
-    Serial.begin(115200);
-    delay(100);
-    SensorStatus status = {false, false, false, false, false};
-    while (true)
+    // Try initialization the sensors (altimeter, imu, temperature)
+    int counter = 0;
+    while (counter++ < MAX_SENSOR_RETRIES)
     {
-        status = sensors.begin(status);
-        if (!status.imu1)
-            Serial.println("Failed to initialize IMU 1.");
-        if (!status.imu2)
-            Serial.println("Failed to initialize IMU 2.");
-        if (!status.imu3)
-            Serial.println("Failed to initialize IMU 3.");
-        if (!status.pressure)
-            Serial.println("Failed to initialize Altimeter.");
-        if (!status.temperature)
-            Serial.println("Failed to initialize Temperature Probe.");
-        if (status.imu1 && status.imu2 && status.imu3 && status.pressure && status.temperature)
-        {
-            Serial.println("Successfully initialized all sensors.");
-
+        sensors.begin();
+        if (sensors.status.imu1 && sensors.status.imu2 && sensors.status.imu3 && sensors.status.pressure && sensors.status.temperature) {
+            // Start collecting data from sensors
+            sensors.start();
+            initialAltitude = sensors.getAltitude();
+            emitLog("Sensor check completed");
             break;
-        }
-        else
-        {
-            Serial.println("Retrying sensor initialization.");
-            delay(100);
+        } else {
+            // Failed, try again
+            threads.delay(100);
         }
     }
-    sensors.enableReports(20);
-    sensors.startDataCollection();
-    initialAltitude = sensors.getAltitude();
-    // Status log
-    addToLog("Sensor check completed");
 }
 
 void fault_entry()
@@ -252,26 +142,14 @@ void fault_entry()
     // Stop all sensors
     // Print status
     // Status log
-    addToLog("Fault detected");
-}
-
-void fault_do()
-{
-    // Fault beep
-    tone(33, 1500, 500); // tone(uint8_t pin, uint16_t frequency, uint32_t duration)
-    delay(500);
-    noTone(33); // stop playing a note on pin 33
-
-    // Wait for timeout
-    int timeout = 2000; // CHANGE WHAT WE WANT TIMEOUT TO BE
-    while (millis() - lastTime < timeout)
-    {
-        // Wait
-    }
-    // Abort mission
+    emitLog("Fault detected, aborting mission");
     aborted = true;
-    // Status log
-    addToLog("Fault timeout reached, aborting mission");
+    
+    // Fault beep
+    // tone(uint8_t pin, uint16_t frequency, uint32_t duration)
+    tone(SPEAKER_PIN, 1500, FAULT_TIMEOUT_DELAY);
+    threads.delay(FAULT_TIMEOUT_DELAY);
+    noTone(SPEAKER_PIN);    
 }
 
 void termination_entry()
@@ -279,7 +157,7 @@ void termination_entry()
     // Print status
     stop_all_threads();
     // Status log
-    addToLog("Termination completed");
+    emitLog("Termination completed");
 }
 
 void ready_entry()
@@ -291,27 +169,28 @@ void ready_entry()
 void ready_do()
 {
     // Compute altitude ascended using pressure sensor
-    altitude = sensors.getAltitude();
     // Status log with data
-    addToLog("Ready state reached, current altitude: %f", altitude);
+    emitLog("Ready state reached");
 }
 
 void ascent_do()
 {
     // Status log
-    addToLog("Ascent state reached");
+
+    
+    emitLog("Ascent state reached");
 }
 
 void stabilization_do()
 {
-    stabilizationStartTime = millis(); // get current time at start of stabilization
+    last_time = millis(); // get current time at start of stabilization to count to 30sec
 
     // set stability
 
     // Control algorithm
     // Output to motors
     // Status log
-    addToLog("Stabilization state reached");
+    emitLog("Stabilization state reached");
 }
 
 void descent_entry()
@@ -319,24 +198,24 @@ void descent_entry()
     // Stop all motors
     // Release payload
     // Status log
-    addToLog("Descent state reached");
+    emitLog("Descent state reached");
 }
 
 void descent_do()
 {
-    // Status log
-    // TODO
-
-    // Compute if reached touchdown
-
-    altitude = sensors.getAltitude();
-    if (altitude <= initialAltitude + 10)
-    {
-        // Touchdown
-        // TODO
-    }
+    // Check if the HAB has landed
+    //calculate the rate of descent
     // Status log with data
-    addToLog("Descent state, current altitude: %f", altitude);
+
+    float current_altitude = sensors.getAltitude();
+    if (last_time <= millis() - 5000)  // Calculate vertical speed every 5 seconds
+    {
+        // Calculate vertical speed
+        vertical_speed = (current_altitude - prev_altitude) / (millis() - last_time);
+        emitLog("Descent State, Vertical speed: %f", vertical_speed, "current altitude: %f", current_altitude);
+        prev_altitude = current_altitude;
+        last_time = millis();  
+    }
 }
 
 bool is_initialized()
@@ -349,6 +228,12 @@ bool has_failed()
     // Print error message
     // Check all states for error
     // Main failure points: telemetry, gps, battery, altimeter, temperature,
+
+    if (!initialized) { // If the initializ
+        return;
+
+        // Initialization state failed    }
+    
     if (telemetry_status < 0)
     {
         Serial.println("Telemetry failed");
@@ -364,20 +249,34 @@ bool has_failed()
         Serial.println("Battery failed");
         return true;
     }
-    if (altimeter_status < 0)
+    if (!sensors.status.imu1)
+    {
+        Serial.println("IMU 1 failed");
+        return true;
+    }
+    if (!sensors.status.imu2)
+    {
+        Serial.println("IMU 2 failed");
+        return true;
+    }
+    if (!sensors.status.imu3)
+    {
+        Serial.println("IMU 3 failed");
+        return true;
+    }
+    if (!sensors.status.pressure)
     {
         Serial.println("Altimeter failed");
         return true;
     }
-    if (temperature_status < 0)
+    if (!sensors.status.temperature)
     {
-        Serial.println("Temperature failed");
-        return true;
+        //TODO: logging (not printing): Serial.println("Temperature sensor failed");
+        return true; //TODO: change all these returns to avoid early return in this case, we want to log all errors
     }
-
-    // IMU check more elaborate due to having to check if at least 2 sensors are operational
-    // TODO
+    // TODO: IMU check more elaborate due to having to check if at least 2 sensors are operational
     return false;
+}
 }
 
 bool has_telemetry()
@@ -440,22 +339,30 @@ bool has_sensors()
         return false;
 }
 
-bool is_ascendeding()
+bool is_ascending()
 {
     // Check if the HAB has ascended to the desired altitude
-    altitude = sensors.getAltitude();
-    if (altitude >= 20000)
+    float current_altitude = sensors.getAltitude();
+    if (last_time <= millis() - 5000)  // Calculate vertical speed every 5 seconds
     {
-        return true; // 20km altitude
+        // Calculate vertical speed
+        vertical_speed = (current_altitude - prev_altitude) / (millis() - last_time);
+        emitLog("TRANSITION(Ready->Ascent), Vertical speed: %f", vertical_speed, "current altitude: %f", current_altitude);
+        prev_altitude = current_altitude;
+        last_time = millis();  
     }
-    return false;
+    if (vertical_speed > 0.5)
+    {
+        return true;
+    }
+    
 }
 
 bool can_stabilize()
 {
     // Check if the HAB has reached the desired altitude
     // Check if the HAB is ready to stabilize
-    if (altitude >= 20000)
+    if (sensors.getAltitude() >= 20000)
     {
         return true; // 20km altitude
     }
@@ -474,7 +381,7 @@ bool stabilization_timeout()
     // Check if the stabilization has timed out
     int timeout = 30000; // 30 seconds
 
-    if (millis() - stabilizationStartTime > timeout)
+    if (millis() - last_time > timeout)
     {
         return true;
     }
@@ -484,11 +391,12 @@ bool stabilization_timeout()
 bool has_landed()
 {
     // Check if the HAB has landed
-    altitude = sensors.getAltitude();
-    if (altitude <= initialAltitude + 10)
+    float altitude = sensors.getAltitude();
+    if (vertical_speed < 0.5 && altitude < 1000)
     {
         // Touchdown
         // TODO
+        return true;
     }
     return false;
 }
@@ -502,30 +410,31 @@ bool has_fault_timeout()
 // Function based on the Datalogging example under SD in Examples
 void data_collection_thread()
 {
-    while (true)
-    {
-        StringMessage logMessage;
-
-        if (sdCardLoggingQueue.dequeue(logMessage))
-        {
-            // Dequeuing most recent data to place on the SD card
-            // open the file.
-            File dataFile = SD.open("datalog.txt", FILE_WRITE);
-
-            // if the file is available, write to it:
-            if (dataFile)
-            {
-                dataFile.println(logMessage.text);
-                dataFile.close();
-                // print to the serial port too:
-                Serial.println(logMessage.text);
-            }
-            else
-            {
-                // if the file isn't open, pop up an error:
-                Serial.println("Error opening datalog.txt");
-            }
+    File dataFile;
+    while (true) {
+        dataFile = SD.open("datalog.txt", FILE_WRITE); // Open the status file
+        if (!dataFile) {
+            emitLog("Failed to open the file on the SD card");
         }
+
+        while (dataFile)
+        {
+            StringMessage logMessage;
+            if (sdCardLoggingQueue.dequeue(&logMessage))
+            {
+                // Dequeuing most recent data to print it on the SD card
+                emitLog(logMessage.text);
+                size_t count = dataFile.println(logMessage.text);
+                if (count != strlen(logMessage.text)) {
+                    dataFile.close();
+                    dataFile = NULL;
+                    emitLog("Failed to emit log to the SD card");
+                    break;
+                }
+            }
+            threads.yield();
+        }
+
         threads.yield();
     }
 }
@@ -560,8 +469,8 @@ void setup()
     flight_fsm.addState(TELEMETRY_CHECK, telemetry_check_entry, nullptr, nullptr);
     flight_fsm.addState(BATTERY_CHECK, battery_check_entry, nullptr, nullptr);
     flight_fsm.addState(SENSOR_CHECK, sensor_check_entry, nullptr, nullptr);
-    flight_fsm.addState(FAULT, fault_entry, fault_do, nullptr);
-    flight_fsm.addState(TERMINATION, termination_entry, nullptr);
+    flight_fsm.addState(FAULT, fault_entry, nullptr, nullptr);
+    flight_fsm.addState(TERMINATION, termination_entry, nullptr, nullptr);
     flight_fsm.addState(READY, ready_entry, ready_do, nullptr);
     flight_fsm.addState(ASCENT, nullptr, ascent_do, nullptr);
     flight_fsm.addState(STABILIZATION, nullptr, stabilization_do, nullptr);
@@ -571,14 +480,14 @@ void setup()
 
     // Add transitions
     flight_fsm.addTransition(INITIALIZATION, TELEMETRY_CHECK, is_initialized);
-    flight_fsm.addTransition(INITIALIZATION, FAULT, has_failed);
+    flight_fsm.addTransition(INITIALIZATION, FAULT, has_failed); // TODO: split up the has_failed function to check for each state
     flight_fsm.addTransition(TELEMETRY_CHECK, BATTERY_CHECK, has_telemetry);
     flight_fsm.addTransition(TELEMETRY_CHECK, FAULT, has_failed);
     flight_fsm.addTransition(BATTERY_CHECK, SENSOR_CHECK, has_battery);
     flight_fsm.addTransition(BATTERY_CHECK, FAULT, has_failed);
     flight_fsm.addTransition(SENSOR_CHECK, READY, has_sensors);
     flight_fsm.addTransition(SENSOR_CHECK, FAULT, has_failed);
-    flight_fsm.addTransition(READY, ASCENT, is_ascendeding);
+    flight_fsm.addTransition(READY, ASCENT, is_ascending);
     flight_fsm.addTransition(ASCENT, STABILIZATION, can_stabilize);
     flight_fsm.addTransition(ASCENT, DESCENT, is_aborted);
     flight_fsm.addTransition(STABILIZATION, DESCENT, stabilization_timeout);
@@ -586,7 +495,7 @@ void setup()
     flight_fsm.addTransition(DESCENT, TERMINATION, has_landed);
     flight_fsm.addTransition(FAULT, TERMINATION, has_fault_timeout);
 
-    lastTime = millis();
+    last_time = millis();
 }
 
 void loop()

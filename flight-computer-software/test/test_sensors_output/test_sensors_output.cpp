@@ -11,21 +11,20 @@ void setup()
 {
   Serial.begin(115200);
   delay(100);
-  SensorStatus status = {false, false, false, false, false};
   while (true)
   {
-    status = sensors.begin(status);
-    if (!status.imu1)
+    sensors.begin();
+    if (!sensors.status.imu1)
       Serial.println("Failed to initialize IMU 1.");
-    if (!status.imu2)
+    if (!sensors.status.imu2)
       Serial.println("Failed to initialize IMU 2.");
-    if (!status.imu3)
+    if (!sensors.status.imu3)
       Serial.println("Failed to initialize IMU 3.");
-    if (!status.pressure)
+    if (!sensors.status.pressure)
       Serial.println("Failed to initialize Altimeter.");
-    if (!status.temperature)
+    if (!sensors.status.temperature)
       Serial.println("Failed to initialize Temperature Probe.");
-    if (status.imu1 && status.imu2 && status.imu3 && status.pressure && status.temperature)
+    if (sensors.status.imu1 && sensors.status.imu2 && sensors.status.imu3 && sensors.status.pressure && sensors.status.temperature)
     {
       Serial.println("Successfully initialized all sensors.");
       break;
@@ -36,8 +35,7 @@ void setup()
       delay(100);
     }
   }
-  sensors.enableReports(20);
-  sensors.startDataCollection();
+  sensors.start();
 }
 
 void loop()

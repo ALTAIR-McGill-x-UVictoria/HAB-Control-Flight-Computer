@@ -1,7 +1,7 @@
+#include <Arduino.h>
+
 #ifndef SERIAL_COMMUNICATION_H
 #define SERIAL_COMMUNICATION_H
-
-#include <Arduino.h>
 
 // Status message buffer size
 #define MAX_STATUS_MSG_LENGTH 64
@@ -18,18 +18,6 @@ enum class BoardType
 };
 
 #pragma pack(push, 1)
-/* Data structure to be sent from control board */
-struct VerificationData
-{
-    uint32_t test_value_1;
-    uint32_t test_value_2;
-    float test_value_3;
-    float test_value_4;
-    char statusMsg[MAX_STATUS_MSG_LENGTH];
-    uint32_t statusMsgLength;
-    uint16_t checksum;
-};
-
 struct ControlBoardData
 {
     uint32_t timestamp;                    // 0x00: Time of data capture
@@ -161,126 +149,6 @@ public:
 
         // Brief delay to let things settle
         delay(10);
-    }
-
-    // Send VerificationData (for initialization)
-    bool sendData(VerificationData &data)
-    {
-        // Calculate checksum
-        size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
-        data.checksum = calculateChecksum((uint8_t *)&data, checksumOffset);
-
-        // Send packet
-        serialPort.write(PACKET_HEADER, sizeof(PACKET_HEADER));
-        serialPort.write((uint8_t *)&data, sizeof(data));
-        serialPort.flush();
-
-        return true;
-    }
-
-    // Receive VerificationData (for initialization)
-    bool receiveData(VerificationData &data, unsigned long timeout = 1000)
-    {
-        // Ensure buffer size for verification data
-        ensureBufferSize(sizeof(VerificationData));
-        return receivePacket((uint8_t *)&data, timeout);
-    }
-
-    bool verifyConnection(unsigned long timeout = 5000)
-    {
-        clearBuffers();
-        VerificationData controlBoardTxData = VerificationData();
-        controlBoardTxData = {
-            .test_value_1 = 1,
-            .test_value_2 = 2,
-            .test_value_3 = 3.3f,
-            .test_value_4 = 4.4f,
-            .statusMsg = "Verification data",
-            .statusMsgLength = strlen(controlBoardTxData.statusMsg)};
-
-        // If the boardtype is the control board, then send the data packet first and then wait to receive the answer
-        // If it is the power board, then wait for the data packet and then send an answer back
-        if (boardType == BoardType::CONTROL_BOARD)
-        {
-            // Send the data packet
-            Serial.println("Sending data packet...");
-            // Send initial packet to establish communication
-
-            // Delay to allow response to be received by the power board
-            delay(2000);
-            if (sendData(controlBoardTxData))
-            {
-                Serial.println("SENT DATA:");
-                printVerificationData(controlBoardTxData);
-            }
-            else
-            {
-                Serial.println("ERROR: Failed to send data");
-                return false;
-            }
-
-            VerificationData rxData = VerificationData();
-            // Wait for response
-            Serial.println("Waiting for response...");
-            if (receiveData(rxData, timeout))
-            {
-                Serial.println("RECEIVED DATA:");
-                printVerificationData(rxData);
-                if (rxData.test_value_1 == controlBoardTxData.test_value_1 &&
-                    rxData.test_value_2 == controlBoardTxData.test_value_2 &&
-                    rxData.test_value_3 == controlBoardTxData.test_value_3 &&
-                    rxData.test_value_4 == controlBoardTxData.test_value_4 &&
-                    rxData.statusMsgLength == controlBoardTxData.statusMsgLength &&
-                    strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0)
-                {
-                    return true;
-                }
-                Serial.println("ERROR: Verification data mismatch");
-                return false;
-            }
-            Serial.println("Timeout waiting for response data");
-            clearBuffers();
-            return false;
-        }
-        else if (boardType == BoardType::POWER_BOARD)
-        {
-
-            VerificationData rxData = VerificationData();
-
-            Serial.println("Waiting for response...");
-            if (receiveData(rxData, timeout))
-            {
-                Serial.println("RECEIVED DATA:");
-                printVerificationData(rxData);
-                if (!(rxData.test_value_1 == controlBoardTxData.test_value_1 &&
-                      rxData.test_value_2 == controlBoardTxData.test_value_2 &&
-                      rxData.test_value_3 == controlBoardTxData.test_value_3 &&
-                      rxData.test_value_4 == controlBoardTxData.test_value_4 &&
-                      rxData.statusMsgLength == controlBoardTxData.statusMsgLength &&
-                      strcmp(rxData.statusMsg, controlBoardTxData.statusMsg) == 0))
-                {
-                    Serial.println("ERROR: Verification data mismatch");
-                    return false;
-                }
-            }
-
-            // Send the data packet
-            Serial.println("Sending data packet...");
-            // Send initial packet to establish communication
-
-            if (sendData(rxData))
-            {
-                Serial.println("SENT DATA:");
-                printVerificationData(rxData);
-                return true;
-            }
-            else
-            {
-                Serial.println("ERROR: Failed to send data");
-                return false;
-            }
-        }
-        return false;
     }
 
     // Send ControlBoardData (should be called from Control Board)
@@ -417,29 +285,6 @@ public:
         }
 
         return false; // Overall timeout
-    }
-
-    // Print verification data in a formatted way
-    void printVerificationData(const VerificationData &data)
-    {
-        Serial.println("\n======================== VERIFICATION DATA ========================");
-        Serial.println("| Field              | Value                                      ");
-        Serial.println("|--------------------|--------------------------------------------");
-        Serial.printf("| Test Value 1       | %u\n", data.test_value_1);
-        Serial.printf("| Test Value 2       | %u\n", data.test_value_2);
-        Serial.printf("| Test Value 3       | %.2f\n", data.test_value_3);
-        Serial.printf("| Test Value 4       | %.2f\n", data.test_value_4);
-        Serial.printf("| Status Length      | %u bytes\n", data.statusMsgLength);
-        Serial.printf("| Status Message     | %s\n", data.statusMsg);
-
-        // Calculate checksum offset (the checksum field itself)
-        size_t checksumOffset = sizeof(data) - sizeof(data.checksum);
-        uint16_t calculatedChecksum = calculateChecksum((uint8_t *)&data, checksumOffset);
-        bool checksumValid = (calculatedChecksum == data.checksum);
-
-        Serial.printf("| Checksum           | 0x%04X (%s)\n",
-                      data.checksum, checksumValid ? "Valid" : "Invalid");
-        Serial.println("==================================================================");
     }
 
     // Print control board data in a formatted way
