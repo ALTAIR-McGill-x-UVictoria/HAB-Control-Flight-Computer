@@ -69,7 +69,7 @@ void producerThread()
 void consumerThread()
 {
     while (true)
-    {        
+    {
         // Check for string messages
         StringMessage textMsg;
         if (logQueue.dequeue(textMsg))
@@ -89,7 +89,11 @@ void consumerThread()
             {
                 Serial.println("Failed to open file for writing.");
             }
-        }        
+        }
+        else
+        {
+            Serial.println("**String queue empty**");
+        }
         // Check for sensor data
         SensorData sensorData;
         if (sensorQueue.dequeue(sensorData)) 
@@ -122,6 +126,10 @@ void consumerThread()
             {
                 Serial.println("Failed to open file for writing.");
             }
+        }
+        else
+        {
+            Serial.println("**Sensor queue empty**");
         }
         threads.delay(1200);
     }
