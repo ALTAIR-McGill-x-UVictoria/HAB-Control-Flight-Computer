@@ -123,7 +123,6 @@ void sensor_check_entry()
         if (sensors.status.imu1 && sensors.status.imu2 && sensors.status.imu3 && sensors.status.pressure && sensors.status.temperature) {
             // Start collecting data from sensors
             sensors.start();
-            initialAltitude = sensors.getAltitude();
             emitLog("Sensor check completed");
             break;
         } else {
@@ -325,23 +324,25 @@ bool has_sensors()
     // Give a warning if non critical sensors are missing
     // char available_imus = imu_status[0] > 0 + imu_status[1] > 0 + imu_status[2] > 0;
 
-    if (altimeter_status > 0 && temperature_status > 0 && imu_status[0] > 0 && imu_status[1] > 0 && imu_status[2] > 0)
+    if (sensors.status.pressure > 0 && sensors.status.temperature > 0 && sensors.status.imu1 > 0 && sensors.status.imu2 > 0 && sensors.status.imu3 > 0)
     {
+        emitLog("All sensors are working");
         return true;
     }
-    else if (altimeter_status > 0 && temperature_status < 0 && imu_status[0] > 0 && imu_status[1] > 0 && imu_status[2] > 0)
+    else if (sensors.status.pressure > 0 && sensors.status.temperature < 0 && sensors.status.imu1 > 0 && sensors.status.imu2 > 0 && sensors.status.imu3 > 0)
     { // temp sensor is the only noncritical sensor
         // give a warning if temp sensor is missing
-        Serial.println("Temperature sensor is missing. This is a non-critical sensor. All other sensors are working");
+        emitLog("Temperature sensor is missing (non-critical sensor). All other sensors are working");
         return true;
     }
     else
+        emitLog("Critical sensors are missing");
         return false;
 }
 
 bool is_ascending()
 {
-    // Check if the HAB has ascended to the desired altitude
+    // Check if the HAB has started ascending
     float current_altitude = sensors.getAltitude();
     if (last_time <= millis() - 5000)  // Calculate vertical speed every 5 seconds
     {
@@ -354,8 +355,7 @@ bool is_ascending()
     if (vertical_speed > 0.5)
     {
         return true;
-    }
-    
+    } 
 }
 
 bool can_stabilize()
@@ -366,7 +366,6 @@ bool can_stabilize()
     {
         return true; // 20km altitude
     }
-
     return false;
 }
 
