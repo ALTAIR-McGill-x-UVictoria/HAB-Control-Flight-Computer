@@ -7,6 +7,9 @@
 #define MAX_STATUS_MSG_LENGTH 64
 #define baud 115200
 
+// Debugging statements
+#define SERIAL_DEBUG 1
+
 // Define a packet header for reliable packet detection
 static const uint8_t PACKET_HEADER[] = {0xAA, 0xBB};
 
@@ -113,25 +116,39 @@ public:
     void begin()
     {
         serialPort.begin(baud);
-        Serial.println("Serial Communication initialized");
+        if (SERIAL_DEBUG)
+        {
+            Serial.println("Serial Communication initialized");
+        }
 
         if (boardType == BoardType::CONTROL_BOARD)
         {
-            Serial.println("Configured as Control Board");
+            if (SERIAL_DEBUG)
+            {
+                Serial.println("Configured as Control Board");
+            }
+
             ensureBufferSize(sizeof(PowerBoardData));
         }
         else
         {
-            Serial.println("Configured as Power Board");
+            if (SERIAL_DEBUG)
+            {
+                Serial.println("Configured as Power Board");
+            }
+
             ensureBufferSize(sizeof(ControlBoardData));
         }
 
-        // Add debug info about serialPort configuration
-        Serial.printf("Serial1 configured at %d baud\n", baud);
+        if (SERIAL_DEBUG)
+        {
+            Serial.printf("Serial1 configured at %d baud\n", baud);
+        }
 
         // More thorough clear buffers operation
         clearBuffers();
-        delay(100); // Give some time for things to stabilize
+        // Give some time for things to stabilize
+        delay(100);
     }
 
     // Discard any pending data in buffers
@@ -194,7 +211,10 @@ public:
     {
         if (boardType != BoardType::CONTROL_BOARD)
         {
-            Serial.println("Error: Only control board should receive PowerBoardData");
+            if (SERIAL_DEBUG)
+            {
+                Serial.println("Error: Only control board should receive PowerBoardData");
+            }
             return false;
         }
 
@@ -207,7 +227,11 @@ public:
     {
         if (boardType != BoardType::POWER_BOARD)
         {
-            Serial.println("Error: Only power board should receive ControlBoardData");
+            if (SERIAL_DEBUG)
+            {
+                Serial.println("Error: Only power board should receive ControlBoardData");
+            }
+
             return false;
         }
 
@@ -268,8 +292,10 @@ public:
                     }
                     else
                     {
-                        Serial.printf("Invalid checksum: expected 0x%04X, got 0x%04X\n",
-                                      calculatedChecksum, receivedChecksum);
+                        if (SERIAL_DEBUG)
+                        {
+                            Serial.printf("Invalid checksum: expected 0x%04X, got 0x%04X\n", calculatedChecksum, receivedChecksum);
+                        }
                         return false;
                     }
                 }
@@ -277,7 +303,11 @@ public:
                 // Packet timeout check
                 if (millis() - packetStartTime > timeout)
                 {
-                    Serial.printf("Packet timeout: %d/%zu bytes\n", bytesRead, bufferSize);
+                    if (SERIAL_DEBUG)
+                    {
+                        Serial.printf("Packet timeout: %d/%zu bytes\n", bytesRead, bufferSize);
+                    }
+
                     resetReceiveState();
                     return false;
                 }

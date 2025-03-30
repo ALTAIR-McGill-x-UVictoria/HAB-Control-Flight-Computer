@@ -8,7 +8,6 @@
 
 #define MAX_MESSAGE_LENGTH 128 // Maximum message length for string messages
 
-PowerBoardData rxData;
 LogQueue<ControlBoardData> telemetryTransmitQueue; // Changed to proper type
 LogQueue<StringMessage> sdCardLoggingQueue;
 
@@ -84,12 +83,58 @@ void emitTelemetry(Sensors &sensors, const char *format, ...)
 
     // Log telemetry data to SD card
     emitLog(
-        "Telemetry: P=%f, Alt=%f, T=%f, LinAccel=(%f,%f,%f), AngVel=(%f,%f,%f), Orient=(%f,%f,%f), Status=%s",
-        txData.pressure, txData.altitude, txData.temperature,
+        "Enqueuing for TX Telemetry: Time=%u, P=%f, Alt=%f, T=%f, LinAccel=(%f,%f,%f), AngVel=(%f,%f,%f), Orient=(%f,%f,%f), Status=%s",
+        txData.timestamp, txData.pressure, txData.altitude, txData.temperature,
         txData.accelX, txData.accelY, txData.accelZ,
         txData.angularVelocityX, txData.angularVelocityY, txData.angularVelocityZ,
         txData.orientationYaw, txData.orientationPitch, txData.orientationRoll,
         txData.statusMsg);
+}
+
+void processLogQueue()
+{
+    File dataFile = SD.open("datalog.txt", FILE_WRITE); // Open the file
+    if (!dataFile) {
+        emitLog("Failed to open the file on the SD card");
+    }
+
+    while (dataFile)
+    {
+        StringMessage logMessage;
+        if (sdCardLoggingQueue.dequeue(&logMessage))
+        {
+            // Dequeuing most recent data to print it on the SD card
+            emitLog(logMessage.text);
+            size_t count = dataFile.println(logMessage.text);
+            if (count != strlen(logMessage.text)) {
+                dataFile.close();
+                dataFile = NULL;
+                emitLog("Failed to emit log to the SD card");
+                break;
+            }
+        }
+        threads.yield();
+    }
+}
+
+void processTelemetryQueue()
+{
+    // Process telemetry data from the queue
+    ControlBoardData txData;
+    if (telemetryTransmitQueue.dequeue(txData))
+    {
+        // Send telemetry data
+        if (serialComm.sendData(txData))
+        {
+            emitLog(
+                "TX Telemetry Data Sent: Time=%u, P=%f, Alt=%f, T=%f, LinAccel=(%f,%f,%f), AngVel=(%f,%f,%f), Orient=(%f,%f,%f), Status=%s",
+                txData.timestamp, txData.pressure, txData.altitude, txData.temperature,
+                txData.accelX, txData.accelY, txData.accelZ,
+                txData.angularVelocityX, txData.angularVelocityY, txData.angularVelocityZ,
+                txData.orientationYaw, txData.orientationPitch, txData.orientationRoll,
+                txData.statusMsg);
+        }
+    }
 }
 
 #endif // LOGGING_H
