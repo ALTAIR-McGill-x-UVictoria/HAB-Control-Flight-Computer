@@ -41,7 +41,6 @@ struct ControlBoardData
     uint16_t checksum;                     // 0x36 + Msg Length: Error detection
 };
 
-/* Data structure to be received from power board */
 struct PowerBoardData
 {
     uint32_t transponderTimestamp;         // 0x00: Time

@@ -292,7 +292,6 @@ bool can_stabilize()
         emitLog("reached %dkm altitude, entering stabilization state", TARGET_STABILIZATION_ALTITUDE / 1000);
         return true; // 20km altitude
     }
-
     return false;
 }
 
