@@ -1,0 +1,30 @@
+{
+  "name": "Teensy_PWM",
+  "version": "1.1.1",
+  "keywords": "timing, device, control, timer, interrupt, hardware, isr, isr-based, hardware-timer, mission-critical, accuracy, precise, non-blocking, teensy-2x, teensy-3x, teensy-lc, teensy-4x, teensy-41, teensy-40, teensy-micromod",
+  "description": "This library enables you to use Hardware-based PWM channels on Teensy boards, such as Teensy 2.x, Teensy LC, Teensy 3.x, Teensy 4.x, Teensy MicroMod, etc., to create and output PWM to pins. Using the same functions as other FastPWM libraries to enable you to port PWM code easily between platforms. The most important feature is they are purely hardware-based PWM channels, supporting very high PWM frequencies. Therefore, their executions are not blocked by bad-behaving functions or tasks. This important feature is absolutely necessary for mission-critical tasks. These hardware-based PWMs, still work even if other software functions are blocking. Moreover, they are much more precise (certainly depending on clock frequency accuracy) than other software-based PWM using ISR, millis() or micros(). That is necessary if you need to control devices requiring high precision. New efficient setPWM_manual function to facilitate waveform creation using PWM",
+  "authors":
+  {
+    "name":  "Khoi Hoang",
+    "url":   "https://github.com/khoih-prog",
+    "maintainer": true
+  },
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/khoih-prog/Teensy_PWM"
+  },
+  "homepage": "https://github.com/khoih-prog/Teensy_PWM",
+  "export": {
+    "exclude": [
+      "linux",
+      "extras",
+      "tests"
+    ]
+  },
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "avr",
+  "examples": "examples/*/*/*.ino",
+  "headers": ["Teensy_PWM.h"]
+}
