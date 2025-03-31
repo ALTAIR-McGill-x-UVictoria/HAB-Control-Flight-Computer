@@ -51,6 +51,7 @@ struct SensorDataIMU
   volatile byte gyroAccuracy;
   volatile float yawOrientation, pitchOrientation, rollOrientation, orientationAccuracy;
   volatile byte rotationAccuracy;
+  volatile float quatI, quatJ, quatK, quatReal;
 };
 
 class Sensors
@@ -65,7 +66,7 @@ public:
 
   volatile float xRelativeVelocity, yRelativeVelocity, zRelativeVelocity;
   volatile float xRelativePosition, yRelativePosition, zRelativePosition;
-
+  
   // Initializes the sensors
   void begin();
 
@@ -93,21 +94,33 @@ public:
   // params: float &yawOrientation, float &pitchOrientation, float &rollOrientation
   void getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation);
 
-  // Gets the relative velocity
+  // Gets the relative velocity (in world frame)
   // params: float &vx, float &vy, float &vz
   void getRelativeVelocity(float &vx, float &vy, float &vz);
 
-  // Gets the relative position
+  // Gets the relative position (in world frame)
   // params: float &px, float &py, float &pz
   void getRelativePosition(float &px, float &py, float &pz);
 
-  // Sets the relative velocity
+  // Sets the relative velocity (in world frame)
   // params: float vx, float vy, float vz
   void setRelativeVelocity(float vx, float vy, float vz);
 
-  // Sets the relative position
+  // Sets the relative position (in world frame)
   // params: float px, float py, float pz
   void setRelativePosition(float px, float py, float pz);
+
+  // Gets the fused linear acceleration in world frame
+  // params: float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration
+  void getFusedWorldLinearAcceleration(float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration);
+  
+  // Gets the fused angular velocity in world frame
+  // params: float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity
+  void getFusedWorldAngularVelocity(float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity);
+
+  // Gets the fused quaternion
+  // params: float &quatI, float &quatJ, float &quatK, float &quatReal
+  void getFusedQuaternion(float &quatI, float &quatJ, float &quatK, float &quatReal);
 
 private:
   // The temperature probe sensor
@@ -164,4 +177,22 @@ private:
 
   // Helper method to process a single IMU
   void processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &lastUpdateTime, bool &statusFlag);
+
+  // Transforms a vector from sensor frame to world frame using a quaternion
+  // params: float x, float y, float z, float quatI, float quatJ, float quatK, float quatReal, float &xWorld, float &yWorld, float &zWorld
+  void transformToWorldFrame(float x, float y, float z, 
+                            float quatI, float quatJ, float quatK, float quatReal, 
+                            float &xWorld, float &yWorld, float &zWorld);
+                            
+  // Quaternion multiplication helper
+  // params: float a_i, float a_j, float a_k, float a_real, float b_i, float b_j, float b_k, float b_real, 
+  //         float &c_i, float &c_j, float &c_k, float &c_real
+  void quaternionMultiply(float a_i, float a_j, float a_k, float a_real,
+                          float b_i, float b_j, float b_k, float b_real,
+                          float &c_i, float &c_j, float &c_k, float &c_real);
+                          
+  // Get conjugate of quaternion
+  // params: float i, float j, float k, float real, float &conj_i, float &conj_j, float &conj_k, float &conj_real
+  void quaternionConjugate(float i, float j, float k, float real, 
+                          float &conj_i, float &conj_j, float &conj_k, float &conj_real);
 };

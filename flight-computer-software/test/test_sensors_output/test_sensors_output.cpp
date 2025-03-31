@@ -49,11 +49,22 @@ void loop()
   float yawOrientation, pitchOrientation, rollOrientation;
   sensors.getFusedOrientation(yawOrientation, pitchOrientation, rollOrientation);
 
+  float xWorldLinearAcceleration, yWorldLinearAcceleration, zWorldLinearAcceleration;
+  sensors.getFusedWorldLinearAcceleration(xWorldLinearAcceleration, yWorldLinearAcceleration, zWorldLinearAcceleration);
+
+  float xWorldAngularVelocity, yWorldAngularVelocity, zWorldAngularVelocity;
+  sensors.getFusedWorldAngularVelocity(xWorldAngularVelocity, yWorldAngularVelocity, zWorldAngularVelocity);
+  
+  float quatI, quatJ, quatK, quatReal;
+  sensors.getFusedQuaternion(quatI, quatJ, quatK, quatReal);
+
   float vx, vy, vz;
   sensors.getRelativeVelocity(vx, vy, vz);
 
   float px, py, pz;
   sensors.getRelativePosition(px, py, pz);
+
+  //Serial.print("\033[2J\033[H");
 
   // Basic IMU data
   Serial.printf("Linear Acceleration IMU1: (x, y, z)=(%.2f, %.2f, %.2f), accuracy=%d\n", 
@@ -108,9 +119,18 @@ void loop()
   
   Serial.printf("Median Orientation: (yaw, pitch, roll)=(%.2f, %.2f, %.2f)\n", 
     yawOrientation, pitchOrientation, rollOrientation);
+    
+  Serial.printf("Median World Linear Acceleration: (x, y, z)=(%.2f, %.2f, %.2f)\n", 
+    xWorldLinearAcceleration, yWorldLinearAcceleration, zWorldLinearAcceleration);
+    
+  Serial.printf("Median World Angular Velocity: (x, y, z)=(%.2f, %.2f, %.2f)\n", 
+    xWorldAngularVelocity, yWorldAngularVelocity, zWorldAngularVelocity);
+  
+  Serial.printf("Median Quaternion: (i, j, k, real)=(%.4f, %.4f, %.4f, %.4f)\n", 
+    quatI, quatJ, quatK, quatReal);
 
-  Serial.printf("Relative Velocity: (x, y, z)=(%.2f, %.2f, %.2f)\n", vx, vy, vz);
-  Serial.printf("Relative Position: (x, y, z)=(%.2f, %.2f, %.2f)\n", px, py, pz);
+  Serial.printf("World Relative Velocity: (x, y, z)=(%.2f, %.2f, %.2f)\n", vx, vy, vz);
+  Serial.printf("World Relative Position: (x, y, z)=(%.2f, %.2f, %.2f)\n", px, py, pz);
 
 /*
   // Set relative linear values using GPS values to counteract the effects of drift

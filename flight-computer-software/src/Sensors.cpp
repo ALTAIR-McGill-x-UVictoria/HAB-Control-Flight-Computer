@@ -66,6 +66,10 @@ bool Sensors::fetchDataFromIMU(BNO080 *imu, SensorDataIMU *data)
     data->rollOrientation = imu->getRoll() * 180.0 / PI;
     data->orientationAccuracy = imu->getQuatRadianAccuracy() * 180.0 / PI;
     data->rotationAccuracy = imu->getQuatAccuracy();
+    data->quatI = imu->getQuatI();
+    data->quatJ = imu->getQuatJ();
+    data->quatK = imu->getQuatK();
+    data->quatReal = imu->getQuatReal();
     return true;
   }
   return false;
@@ -172,19 +176,24 @@ void Sensors::computeRelativeLinearThreadImpl()
 {
   while (running)
   {
-    float ax = 0.0, ay = 0.0, az = 0.0;
-    getFusedLinearAcceleration(ax, ay, az);
+    // Only get world frame accelerations
+    float axWorld = 0.0, ayWorld = 0.0, azWorld = 0.0;
+    getFusedWorldLinearAcceleration(axWorld, ayWorld, azWorld);
+    
     unsigned long currentTime = millis();
     float dt = (currentTime - lastRelativeLinearUpdateTime) / 1000.0; // Convert to seconds
     lastRelativeLinearUpdateTime = currentTime;
-    // Integrate acceleration to get velocity
-    xRelativeVelocity = xRelativeVelocity + ax * dt;
-    yRelativeVelocity = yRelativeVelocity + ay * dt;
-    zRelativeVelocity = zRelativeVelocity + az * dt;
-    // Integrate velocity to get position
+    
+    // Integrate world frame acceleration to get velocity in world frame
+    xRelativeVelocity = xRelativeVelocity + axWorld * dt;
+    yRelativeVelocity = yRelativeVelocity + ayWorld * dt;
+    zRelativeVelocity = zRelativeVelocity + azWorld * dt;
+    
+    // Integrate world frame velocity to get position in world frame
     xRelativePosition = xRelativePosition + xRelativeVelocity * dt;
     yRelativePosition = yRelativePosition + yRelativeVelocity * dt;
     zRelativePosition = zRelativePosition + zRelativeVelocity * dt;
+    
     // Wait before next reading
     threads.delay(interval);
   }
@@ -196,6 +205,8 @@ void Sensors::start(uint16_t interval)
   this->interval = interval;
   Wire1.setClock(400000);
   Wire2.setClock(400000);
+  setRelativePosition(0.0, 0.0, 0.0);
+  setRelativeVelocity(0.0, 0.0, 0.0);
   threads.delay(100);
   enableReportsForIMU(&imu1, interval);
   threads.delay(100);
@@ -264,7 +275,6 @@ void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVe
 
 void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation)
 {
-
   std::vector<float> yawValues = {imu1Data.yawOrientation, imu2Data.yawOrientation, imu3Data.yawOrientation};
   std::vector<float> pitchValues = {imu1Data.pitchOrientation, imu2Data.pitchOrientation, imu3Data.pitchOrientation};
   std::vector<float> rollValues = {imu1Data.rollOrientation, imu2Data.rollOrientation, imu3Data.rollOrientation};
@@ -275,6 +285,115 @@ void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation
   yawOrientation = sensorFusion(yawValues, accuracyValues, orientationAccuracy);
   pitchOrientation = sensorFusion(pitchValues, accuracyValues, orientationAccuracy);
   rollOrientation = sensorFusion(rollValues, accuracyValues, orientationAccuracy);
+}
+
+void Sensors::getFusedQuaternion(float &quatI, float &quatJ, float &quatK, float &quatReal)
+{
+  std::vector<float> iValues = {imu1Data.quatI, imu2Data.quatI, imu3Data.quatI};
+  std::vector<float> jValues = {imu1Data.quatJ, imu2Data.quatJ, imu3Data.quatJ};
+  std::vector<float> kValues = {imu1Data.quatK, imu2Data.quatK, imu3Data.quatK};
+  std::vector<float> realValues = {imu1Data.quatReal, imu2Data.quatReal, imu3Data.quatReal};
+  std::vector<byte> accuracyValues = {imu1Data.rotationAccuracy, imu2Data.rotationAccuracy, imu3Data.rotationAccuracy};
+
+  quatI = sensorFusion(iValues, accuracyValues);
+  quatJ = sensorFusion(jValues, accuracyValues);
+  quatK = sensorFusion(kValues, accuracyValues);
+  quatReal = sensorFusion(realValues, accuracyValues);
+  
+  // Normalize the quaternion
+  float norm = sqrt(quatI*quatI + quatJ*quatJ + quatK*quatK + quatReal*quatReal);
+  if (norm > 0.0001) {
+    quatI /= norm;
+    quatJ /= norm;
+    quatK /= norm;
+    quatReal /= norm;
+  }
+}
+
+void Sensors::getFusedWorldLinearAcceleration(float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration)
+{
+  // First get fused IMU frame accelerations
+  float xAcc, yAcc, zAcc;
+  getFusedLinearAcceleration(xAcc, yAcc, zAcc);
+  
+  // Get fused quaternion
+  float quatI, quatJ, quatK, quatReal;
+  getFusedQuaternion(quatI, quatJ, quatK, quatReal);
+  
+  // Transform to world frame
+  transformToWorldFrame(xAcc, yAcc, zAcc, quatI, quatJ, quatK, quatReal, 
+                        xLinearAcceleration, yLinearAcceleration, zLinearAcceleration);
+}
+
+void Sensors::getFusedWorldAngularVelocity(float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity)
+{
+  // First get fused IMU frame angular velocities
+  float xGyro, yGyro, zGyro;
+  getFusedAngularVelocity(xGyro, yGyro, zGyro);
+  
+  // Get fused quaternion
+  float quatI, quatJ, quatK, quatReal;
+  getFusedQuaternion(quatI, quatJ, quatK, quatReal);
+  
+  // Transform to world frame
+  transformToWorldFrame(xGyro, yGyro, zGyro, quatI, quatJ, quatK, quatReal, 
+                       xAngularVelocity, yAngularVelocity, zAngularVelocity);
+}
+
+void Sensors::transformToWorldFrame(float x, float y, float z, 
+                                  float quatI, float quatJ, float quatK, float quatReal,
+                                  float &xWorld, float &yWorld, float &zWorld)
+{
+  // To transform a vector from sensor frame to world frame:
+  // v_world = q^-1 * v_sensor * q
+  // Where q is the quaternion representing rotation from world to sensor frame
+  
+  // Get quaternion conjugate (inverse for unit quaternions)
+  float conjI, conjJ, conjK, conjReal;
+  quaternionConjugate(quatI, quatJ, quatK, quatReal, conjI, conjJ, conjK, conjReal);
+  
+  // Create quaternion for the vector (0, x, y, z)
+  float vecI = x;
+  float vecJ = y;
+  float vecK = z;
+  float vecReal = 0.0;
+  
+  // Compute q^-1 * v_sensor
+  float tempI, tempJ, tempK, tempReal;
+  quaternionMultiply(conjI, conjJ, conjK, conjReal,
+                    vecI, vecJ, vecK, vecReal,
+                    tempI, tempJ, tempK, tempReal);
+  
+  // Compute (q^-1 * v_sensor) * q
+  quaternionMultiply(tempI, tempJ, tempK, tempReal,
+                    quatI, quatJ, quatK, quatReal,
+                    vecI, vecJ, vecK, vecReal);
+  
+  // The result is (0, xWorld, yWorld, zWorld)
+  xWorld = vecI;
+  yWorld = vecJ;
+  zWorld = vecK;
+}
+
+void Sensors::quaternionMultiply(float a_i, float a_j, float a_k, float a_real,
+                               float b_i, float b_j, float b_k, float b_real,
+                               float &c_i, float &c_j, float &c_k, float &c_real)
+{
+  // Standard quaternion multiplication: c = a * b
+  c_real = a_real*b_real - a_i*b_i - a_j*b_j - a_k*b_k;
+  c_i = a_real*b_i + a_i*b_real + a_j*b_k - a_k*b_j;
+  c_j = a_real*b_j - a_i*b_k + a_j*b_real + a_k*b_i;
+  c_k = a_real*b_k + a_i*b_j - a_j*b_i + a_k*b_real;
+}
+
+void Sensors::quaternionConjugate(float i, float j, float k, float real, 
+                                float &conj_i, float &conj_j, float &conj_k, float &conj_real)
+{
+  // The conjugate of a quaternion (i, j, k, real) is (-i, -j, -k, real)
+  conj_i = -i;
+  conj_j = -j;
+  conj_k = -k;
+  conj_real = real;
 }
 
 void Sensors::getRelativeVelocity(float &vx, float &vy, float &vz)
@@ -354,8 +473,7 @@ float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accurac
   }
   else
   {
-    // add here error if no sensors are working
-    Serial.println("No sensors are working.");
-    return -1.0;
+    // add here if no sensors are working
+    return 0.0;
   }
 }
