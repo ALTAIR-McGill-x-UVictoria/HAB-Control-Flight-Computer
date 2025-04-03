@@ -29,8 +29,7 @@ void setup() {
     // Initialize propulsion system
     if (propulsion.init()) {
         systemInitialized = true;
-        propulsion.armESCs();
-        Serial.println("ESCs armed and ready");
+        Serial.println("ESCs ready");
     } else {
         Serial.println("ERROR: Failed to initialize propulsion system!");
         Serial.println("Please check connections and restart.");
@@ -39,13 +38,12 @@ void setup() {
     // Only show commands if system initialized successfully
     if (systemInitialized) {
         Serial.println("\nAvailable commands:");
-        Serial.println("  a - Arm ESCs");
-        Serial.println("  c - Calibrate ESCs (be careful!)");
-        Serial.println("  t [0-100] - Set throttle for both motors (percentage)");
-        Serial.println("  l [0-100] - Set left motor throttle (percentage)");
-        Serial.println("  r [0-100] - Set right motor throttle (percentage)");
+        Serial.println("  a[0-100] - Set throttle for all motors (percentage)");
+        Serial.println("  l[0-100] - Set left motor throttle (percentage)");
+        Serial.println("  r[0-100] - Set right motor throttle (percentage)");
         Serial.println("  s - Stop all motors");
         Serial.println("  d - Deinitialize propulsion system");
+        Serial.println("  i - Reinitialize propulsion system");
         Serial.println("Enter command:");
     }
 }
@@ -90,28 +88,8 @@ void processCommand(String command) {
     char cmd = command.charAt(0);
     
     switch (cmd) {
-        case 'a':
-            Serial.println("Arming ESCs...");
-            propulsion.armESCs();
-            Serial.println("ESCs armed");
-            break;
-            
-        case 'c':
-            Serial.println("WARNING: Starting calibration sequence");
-            Serial.println("Make sure props are removed and power supply is ready");
-            Serial.println("Continue? (y/n)");
-            while (!Serial.available()) {
-                // Wait for confirmation
-            }
-            if (Serial.read() == 'y') {
-                propulsion.calibrateESCs();
-            } else {
-                Serial.println("Calibration canceled");
-            }
-            break;
-            
-        case 't': {
-            int value = command.substring(1).toInt();
+        case 'a': {
+            float value = command.substring(1).toFloat();
             Serial.print("Setting both motors to ");
             Serial.print(value);
             Serial.println("%");
@@ -120,7 +98,7 @@ void processCommand(String command) {
         }
         
         case 'l': {
-            int value = command.substring(1).toInt();
+            float value = command.substring(1).toFloat();
             Serial.print("Setting left motor to ");
             Serial.print(value);
             Serial.println("%");
@@ -129,7 +107,7 @@ void processCommand(String command) {
         }
         
         case 'r': {
-            int value = command.substring(1).toInt();
+            float value = command.substring(1).toFloat();
             Serial.print("Setting right motor to ");
             Serial.print(value);
             Serial.println("%");
@@ -148,6 +126,17 @@ void processCommand(String command) {
             propulsion.deinit();
             systemInitialized = false;
             Serial.println("Propulsion system deinitialized. Restart to use again.");
+            break;
+
+        case 'i':
+            Serial.println("Reinitializing propulsion system...");
+            if (propulsion.init()) {
+                systemInitialized = true;
+                Serial.println("ESCs ready");
+            } else {
+                Serial.println("ERROR: Failed to reinitialize propulsion system!");
+                Serial.println("Please check connections and try again.");
+            }
             break;
             
         default:
