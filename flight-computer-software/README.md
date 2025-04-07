@@ -1,6 +1,6 @@
 # Software Information
 
-This project created is using PlatformIO in VS Code to compile and upload code to the Teensy 4.1.
+This project created is using PlatformIO in VS Code to compile and upload code to the Teensy 4.1. To use this, make sure you have the PlatformIO extension installed in VS Code.
 
 # Run Instructions
 
