@@ -3,6 +3,9 @@
 
 #include <Arduino.h>
 #include <Teensy_PWM.h>  // Include Teensy_PWM library
+#include <TeensyThreads.h>
+
+#define SPEAKER_PIN 33
 
 class Propulsion {
 public:
@@ -30,6 +33,37 @@ public:
         }
         
         return true;
+    }
+
+    void calibrate(){
+        // Set ESCs to maximum throttle for calibration
+        esc1_pwm->setPWM(ESC1_PIN, ESC_FREQUENCY, MAX_DUTY_CYCLE);
+        esc2_pwm->setPWM(ESC2_PIN, ESC_FREQUENCY, MAX_DUTY_CYCLE);
+        // Beep to indicate to connect power to motors
+        tone(SPEAKER_PIN, 700, 1000);
+        threads.delay(1000);
+        noTone(SPEAKER_PIN);
+        
+        delay(3000);  // Wait for 3 seconds
+
+        
+        // Beep to indicate to disconnect power from motors
+        tone(SPEAKER_PIN, 700, 1000);
+        threads.delay(1000);
+        noTone(SPEAKER_PIN);
+        
+        delay(3000);  // Wait for 3 seconds
+        // Set ESCs to minimum throttle for calibration
+        esc1_pwm->setPWM(ESC1_PIN, ESC_FREQUENCY, MIN_DUTY_CYCLE);
+        esc2_pwm->setPWM(ESC2_PIN, ESC_FREQUENCY, MIN_DUTY_CYCLE);
+        
+        delay(3000);  // Wait for 3 seconds
+        // Beep to indicate to connect power to motors
+        tone(SPEAKER_PIN, 700, 1000);
+        threads.delay(1000);
+        noTone(SPEAKER_PIN);
+
+        delay(3000);  // Wait for 3 seconds
     }
     
     void deinit() {

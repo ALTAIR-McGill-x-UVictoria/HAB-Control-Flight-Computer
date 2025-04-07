@@ -26,7 +26,7 @@ float prevAction0, prevAction1;
 float actionDiff0, actionDiff1;
 float px, py, pz;
 long start_time = 0;
-const long duration = 20000;
+const long duration = 60000;
 
 float safeSigmoid(float x) {
     if (x < -10.0f) x = -10.0f;
@@ -43,7 +43,7 @@ void stopMotors() {
     // }
 
     // Stop motor tone
-    tone(SPEAKER_PIN, 700, 1-00);
+    tone(SPEAKER_PIN, 700, 1000);
     threads.delay(1000);
     noTone(SPEAKER_PIN);
 }
@@ -71,6 +71,9 @@ void setup() {
         Serial.println("Please check connections and restart.");
         while(true);
     }
+    // Calibrate ESCs
+    propulsion.calibrate();
+    Serial.println("ESCs calibrated");
 
   Serial.println("Initializing TensorFlow Lite Micro Interpreter...");
   if (!modelInit(hab_model_tflite, tensor_arena, kTensorArenaSize)){
@@ -93,15 +96,14 @@ void setup() {
   actionDiff0 = 0;
   actionDiff1 = 0;
 
-  threads.sleep(5000);
-
   // Start motors tone
-  tone(SPEAKER_PIN, 700, 1000);
+  tone(SPEAKER_PIN, 900, 1000);
   threads.delay(1000);
   noTone(SPEAKER_PIN);
-  threads.sleep(5000);
+  threads.delay(10000);
 
   start_time = millis();
+  Serial.println("Starting mission...");
 }
 
 void loop() {
@@ -171,15 +173,15 @@ void loop() {
 
     float action0 = safeSigmoid(modelGetOutput(0));
     float action1 = safeSigmoid(modelGetOutput(1));
-    propulsion.setLeftThrottle(action0 * 0.10);
-    propulsion.setRightThrottle(action1 * 0.10);
+    propulsion.setLeftThrottle(action0 * 0.20 * 100.0);
+    propulsion.setRightThrottle(action1 * 0.20 * 100.0);
 
     Serial.printf(
         ", prevA0: %.2f, prevA1: %.2f, diffA0: %.2f, diffA1: %.2f, motor0: %.2f, motor1: %.2f\n",
         prevAction0, prevAction1, actionDiff0, actionDiff1,
         action0, action1
     );
-    // Serial.printf("%.2f, %.2f\n", action0, action1);
+    // Serial.printf(", %.2f, %.2f\n", action0, action1);
     actionDiff0 = prevAction0 - action0;
     actionDiff1 = prevAction1 - action1;
     prevAction0 = action0;
@@ -190,4 +192,6 @@ void loop() {
         stopMotors();
         while(true);
     }
+
+    threads.delay(5);
 }
