@@ -2,6 +2,7 @@
 #include "TeensyThreads.h"
 #include "hab_model.h"
 #include "../../include/Sensors.h"
+#include "../../include/Propulsion.h"
 
 // The Tensor Arena memory area is used by TensorFlow Lite to store input, output and intermediate tensors
 // It must be defined as a global array of byte (or u_int8 which is the same type on Arduino) 
@@ -11,6 +12,8 @@
 constexpr int kTensorArenaSize = 20 * 1024;
 alignas(16) uint8_t tensor_arena[kTensorArenaSize];
 Sensors sensors;
+Propulsion propulsion;
+
 float xWorldLinearAcceleration, yWorldLinearAcceleration, zWorldLinearAcceleration;
 float vx, vy, vz;
 float xWorldAngularVelocity, yWorldAngularVelocity, zWorldAngularVelocity;
@@ -18,6 +21,8 @@ float yawOrientation, pitchOrientation, rollOrientation;
 float prevAction0, prevAction1;
 float actionDiff0, actionDiff1;
 float px, py, pz;
+long start_time = 0;
+const long duration = 20000;
 
 float safeSigmoid(float x) {
     if (x < -10.0f) x = -10.0f;
@@ -40,6 +45,15 @@ void setup() {
     }
   }
 
+      // Initialize propulsion system
+      if (propulsion.init()) {
+        Serial.println("ESCs ready");
+    } else {
+        Serial.println("ERROR: Failed to initialize propulsion system!");
+        Serial.println("Please check connections and restart.");
+        while(true);
+    }
+
   Serial.println("Initializing TensorFlow Lite Micro Interpreter...");
   if (!modelInit(hab_model_tflite, tensor_arena, kTensorArenaSize)){
     Serial.println("Model initialization failed!");
@@ -52,6 +66,7 @@ void setup() {
   prevAction1 = 0;
   actionDiff0 = 0;
   actionDiff1 = 0;
+  start_time = millis();
 }
 
 void loop() {
@@ -105,14 +120,25 @@ void loop() {
 
     if(!modelRunInference()){
         Serial.println("RunInference Failed!");
+        propulsion.stopMotors();
+        propulsion.deinit();
         while(true);
     }
 
     float action0 = safeSigmoid(modelGetOutput(0));
     float action1 = safeSigmoid(modelGetOutput(1));
+    propulsion.setLeftThrottle(action0);
+    propulsion.setRightThrottle(action1);
     Serial.printf("%.2f, %.2f\n", action0, action1);
     actionDiff0 = prevAction0 - action0;
     actionDiff1 = prevAction1 - action1;
     prevAction0 = action0;
     prevAction1 = action1;
+
+    if (millis() - start_time >= duration) {
+        Serial.println("Mission timeout");
+        propulsion.stopMotors();
+        propulsion.deinit();
+        while(true);
+    }
 }
