@@ -1,0 +1,244 @@
+```
+=== Propulsion System Test ===
+
+Initializing propulsion system...
+
+ESCs ready
+
+
+Available commands:
+
+  a[0-100] - Set throttle for all motors (percentage)
+
+  l[0-100] - Set left motor throttle (percentage)
+
+  r[0-100] - Set right motor throttle (percentage)
+
+  s - Stop all motors
+
+  d - Deinitialize propulsion system
+
+  i - Reinitialize propulsion system
+
+Enter command:
+
+Setting both motors to 100.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting both motors to 10.00%
+
+
+Enter command:
+
+Setting both motors to 0.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting right motor to 10.00%
+
+
+Enter command:
+
+Setting both motors to 0.00%
+
+
+Enter command:
+
+Setting left motor to 10.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting both motors to 10.00%
+
+
+Enter command:
+
+Setting both motors to 20.00%
+
+
+Enter command:
+
+Setting right motor to 22.00%
+
+
+Enter command:
+
+Setting right motor to 21.00%
+
+
+Enter command:
+
+Setting right motor to 20.50%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting both motors to 20.00%
+
+
+Enter command:
+
+Setting right motor to 21.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting both motors to 10.00%
+
+
+Enter command:
+
+Setting both motors to 20.00%
+
+
+Enter command:
+
+Setting both motors to 30.00%
+
+
+Enter command:
+
+Setting both motors to 40.00%
+
+
+Enter command:
+
+Setting both motors to 50.00%
+
+
+Enter command:
+
+Setting right motor to 55.00%
+
+
+Enter command:
+
+Setting right motor to 51.00%
+
+
+Enter command:
+
+Setting right motor to 55.50%
+
+
+Enter command:
+
+Setting right motor to 0.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting both motors to 50.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting both motors to 100.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+
+Setting both motors to 50.00%
+
+
+Enter command:
+
+Setting right motor to 51.00%
+
+
+Enter command:
+
+Setting right motor to 52.00%
+
+
+Enter command:
+
+Setting right motor to 51.50%
+
+
+Enter command:
+
+Unknown command
+
+
+Enter command:
+
+Setting right motor to 51.75%
+
+
+Enter command:
+
+Setting both motors to 60.00%
+
+
+Enter command:
+
+Setting right motor to 62.00%
+
+
+Enter command:
+
+Setting right motor to 63.00%
+
+
+Enter command:
+
+Stopping all motors
+
+
+Enter command:
+```
