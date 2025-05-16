@@ -18,6 +18,9 @@ library to provide the following data :
   - Pressure
 */
 
+#ifndef SENSORS_H
+#define SENSORS_H
+
 #include <TeensyThreads.h>
 #include <Adafruit_MAX31865.h>
 #include <MS5607.h>
@@ -196,3 +199,5 @@ private:
   void quaternionConjugate(float i, float j, float k, float real, 
                           float &conj_i, float &conj_j, float &conj_k, float &conj_real);
 };
+
+#endif // SENSORS_H

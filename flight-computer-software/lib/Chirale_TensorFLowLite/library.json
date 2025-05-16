@@ -1,0 +1,7 @@
+{
+  "name": "Chirale_TensorFLowLite",
+  "version": "2.0.0",
+  "build": {
+    "srcFilter": "+<*>"
+  }
+}

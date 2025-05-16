@@ -8,14 +8,16 @@
 
 #define MAX_MESSAGE_LENGTH 128 // Maximum message length for string messages
 
-LogQueue<ControlBoardData> telemetryTransmitQueue; // Changed to proper type
-LogQueue<StringMessage> sdCardLoggingQueue;
-
 // String message type for sd log queue
 struct StringMessage
 {
     char text[MAX_MESSAGE_LENGTH];
 };
+
+LogQueue<ControlBoardData> telemetryTransmitQueue; // Changed to proper type
+LogQueue<StringMessage> sdCardLoggingQueue;
+
+extern SerialCommunication serialComm;
 
 void emitLog(const char *format, ...)
 {
@@ -101,7 +103,7 @@ void processLogQueue()
     while (dataFile)
     {
         StringMessage logMessage;
-        if (sdCardLoggingQueue.dequeue(&logMessage))
+        if (sdCardLoggingQueue.dequeue(logMessage))
         {
             // Dequeuing most recent data to print it on the SD card
             emitLog(logMessage.text);

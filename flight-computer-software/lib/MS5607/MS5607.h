@@ -4,6 +4,9 @@
   Company: Uravu Labs
 */
 
+#ifndef MS5607_H
+#define MS5607_H
+
 #define R_ADC  0X00         // adc read command
 #define PROM_READ  0xA0     // prom read command
 #define RESET 0x1E          // soft reset command
@@ -43,3 +46,5 @@ class MS5607
     char startMeasurment(void);
     char getDigitalValue(unsigned long &value);
 };
+
+#endif // MS5607_H
