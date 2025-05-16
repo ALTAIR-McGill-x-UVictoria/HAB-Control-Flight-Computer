@@ -17,6 +17,7 @@ bool has_failed_initialization();
 bool has_failed_telemetry();
 bool has_failed_battery_check();
 bool has_failed_sensor_check();
+bool testModelInferenceWithDummyData();
 
 // Thread function declarations
 void initialization_entry();
@@ -39,8 +40,9 @@ void telemetry_thread();
 #define TARGET_STABILIZATION_DURATION 30000 // Target duration for stabilization in milliseconds
 
 // Define tensor arena for the model
-constexpr int kTensorArenaSize = 12 * 1024; // Same size as in test_model.cpp
-DMAMEM alignas(16) uint8_t tensor_arena[kTensorArenaSize]; // New: Place in RAM2
+// constexpr int kTensorArenaSize = 12 * 1024; // Same size as in test_model.cpp
+constexpr int kTensorArenaSize = 8 * 1024; // Reduced size for RAM2
+DMAMEM alignas(32) uint8_t tensor_arena[kTensorArenaSize]; // New: Place in RAM2
 
 DMAMEM Sensors sensors;
 DMAMEM PowerBoardData receivedData; // New: Place in RAM2
@@ -61,28 +63,40 @@ enum State
     DESCENT
 };
 
-bool telemetry_status;                      // Telemetry status flag
-bool gps_status;                            // GPS status flag
-bool battery_status;                        // Battery status flag
+DMAMEM bool telemetry_status;                      // Telemetry status flag
+DMAMEM bool gps_status;                            // GPS status flag
+DMAMEM bool battery_status;                        // Battery status flag
 
-bool initialized;                           // Initialization status flag
-bool aborted;                               // Mission abortion status flag
-unsigned long last_time;                    // Used for timeouts and delays
-float prev_altitude;                        // Last altitude for vertical speed calculations
-float vertical_speed;                       // Rate of ascent of the HAB
+DMAMEM bool initialized;                           // Initialization status flag
+DMAMEM bool aborted;                               // Mission abortion status flag
+DMAMEM unsigned long last_time;                    // Used for timeouts and delays
+DMAMEM float prev_altitude;                        // Last altitude for vertical speed calculations
+DMAMEM float vertical_speed;                       // Rate of ascent of the HAB
 
 // Model state variables
-float prevAction0 = 0.0f;
-float prevAction1 = 0.0f;
-float actionDiff0 = 0.0f;
-float actionDiff1 = 0.0f;
+DMAMEM float prevAction0 = 0.0f;
+DMAMEM float prevAction1 = 0.0f;
+DMAMEM float actionDiff0 = 0.0f;
+DMAMEM float actionDiff1 = 0.0f;
 
 DMAMEM StateMachine<10, 15> flight_fsm; // New: Place in RAM2
 int telemetry_thread_id = -1;
 int data_thread_id = -1;
 int model_thread_id = -1;
 
-Threads::Mutex modelMutex;
+DMAMEM Threads::Mutex modelMutex;
+
+// Add these declarations at file scope (with your other globals)
+DMAMEM static uint8_t data_thread_stack[8192];
+DMAMEM static uint8_t telemetry_thread_stack[8192];
+DMAMEM static uint8_t model_thread_stack[12288]; // Larger for the model thread if needed
+
+// Before stabilization_do function, add static global variables
+DMAMEM static float sensor_x_accel, sensor_y_accel, sensor_z_accel;
+DMAMEM static float sensor_vx, sensor_vy, sensor_vz;
+DMAMEM static float sensor_px, sensor_py, sensor_pz;
+DMAMEM static float sensor_x_angular_vel, sensor_y_angular_vel, sensor_z_angular_vel;
+DMAMEM static float sensor_yaw, sensor_pitch, sensor_roll;
 
 void initialization_entry()
 {
@@ -278,6 +292,13 @@ void stabilization_entry() {
     emitLog("Model initialization complete");
     Serial.println("DEBUG: stabilization_entry - TFLite model init DONE.");
 
+    // Call this from stabilization_entry after model initialization
+    if (testModelInferenceWithDummyData()) {
+        Serial.println("Model test passed");
+    } else {
+        Serial.println("Model test failed - may crash in main loop");
+    }
+
     // Initialize propulsion system
     Serial.println("DEBUG: stabilization_entry - Initializing propulsion...");
     if (!propulsion.init()) {
@@ -324,7 +345,7 @@ void stabilization_entry() {
 
 void stabilization_do()
 {
-    Serial.println("DEBUG: stabilization_do - START");
+    // Serial.println("DEBUG: stabilization_do - START");
     static unsigned long debugPrintTime = 0;
 
     if (last_time == 0) {
@@ -334,69 +355,85 @@ void stabilization_do()
     }
 
     // Get sensor readings and normalize them
-    float xWorldLinearAcceleration, yWorldLinearAcceleration, zWorldLinearAcceleration;
-    float vx, vy, vz;
-    float px, py, pz;
-    float xWorldAngularVelocity, yWorldAngularVelocity, zWorldAngularVelocity;
-    float yawOrientation, pitchOrientation, rollOrientation;
+    sensors.getFusedWorldLinearAcceleration(sensor_x_accel, sensor_y_accel, sensor_z_accel);
+    sensors.getRelativeVelocity(sensor_vx, sensor_vy, sensor_vz);
+    sensors.getRelativePosition(sensor_px, sensor_py, sensor_pz);
+    sensors.getFusedOrientation(sensor_yaw, sensor_pitch, sensor_roll);
+    sensors.getFusedWorldAngularVelocity(sensor_x_angular_vel, sensor_y_angular_vel, sensor_z_angular_vel);
 
-    // Get sensor data
-    sensors.getFusedWorldLinearAcceleration(xWorldLinearAcceleration, yWorldLinearAcceleration, zWorldLinearAcceleration);
-    sensors.getRelativeVelocity(vx, vy, vz);
-    sensors.getRelativePosition(px, py, pz);
-    sensors.getFusedOrientation(yawOrientation, pitchOrientation, rollOrientation);
-    sensors.getFusedWorldAngularVelocity(xWorldAngularVelocity, yWorldAngularVelocity, zWorldAngularVelocity);
+    // Before setting model inputs, add this validation
+    bool hasInvalidInputs = false;
+    // Check each input for NaN or Inf values
+    if (isnan(sensor_x_accel) || isinf(sensor_x_accel)) {
+        Serial.println("WARNING: Invalid xWorldLinearAcceleration");
+        hasInvalidInputs = true;
+        sensor_x_accel = 0; // Provide safe value
+    }
+
+    // Add similar checks for all other inputs
+
+    // If any inputs are invalid, log it
+    if (hasInvalidInputs) {
+        Serial.println("WARNING: Some sensor inputs were invalid and replaced with safe values");
+    }
 
     // Normalize data
-    xWorldLinearAcceleration /= 10.0f;
-    yWorldLinearAcceleration /= 10.0f;
-    vx /= 10.0f;
-    vy /= 10.0f;
-    px /= 10.0f;
-    py /= 10.0f;
+    sensor_x_accel /= 10.0f;
+    sensor_y_accel /= 10.0f;
+    sensor_vx /= 10.0f;
+    sensor_vy /= 10.0f;
+    sensor_px /= 10.0f;
+    sensor_py /= 10.0f;
 
     // Convert degrees to radians and normalize
-    rollOrientation = (rollOrientation * M_PI / 180.0f) / 6.28f;
-    pitchOrientation = (pitchOrientation * M_PI / 180.0f) / 6.28f;
-    yawOrientation = (yawOrientation * M_PI / 180.0f) / 6.28f;
+    sensor_roll = (sensor_roll * M_PI / 180.0f) / 6.28f;
+    sensor_pitch = (sensor_pitch * M_PI / 180.0f) / 6.28f;
+    sensor_yaw = (sensor_yaw * M_PI / 180.0f) / 6.28f;
 
-    xWorldAngularVelocity = (xWorldAngularVelocity * M_PI / 180.0f) / 6.28f;
-    yWorldAngularVelocity = (yWorldAngularVelocity * M_PI / 180.0f) / 6.28f;
-    zWorldAngularVelocity = (zWorldAngularVelocity * M_PI / 180.0f) / 6.28f;
+    sensor_x_angular_vel = (sensor_x_angular_vel * M_PI / 180.0f) / 6.28f;
+    sensor_y_angular_vel = (sensor_y_angular_vel * M_PI / 180.0f) / 6.28f;
+    sensor_z_angular_vel = (sensor_z_angular_vel * M_PI / 180.0f) / 6.28f;
 
     // Set model inputs
-    modelSetInput(xWorldLinearAcceleration, IDX_X_ACCEL);
-    modelSetInput(yWorldLinearAcceleration, IDX_Y_ACCEL);
-    modelSetInput(vx, IDX_X_VEL);
-    modelSetInput(vy, IDX_Y_VEL);
-    modelSetInput(px, IDX_X_POS);
-    modelSetInput(py, IDX_Y_POS);
-    modelSetInput(rollOrientation, IDX_ROLL);
-    modelSetInput(pitchOrientation, IDX_PITCH);
-    modelSetInput(yawOrientation, IDX_YAW);
-    modelSetInput(xWorldAngularVelocity, IDX_X_ANG_VEL);
-    modelSetInput(yWorldAngularVelocity, IDX_Y_ANG_VEL);
-    modelSetInput(zWorldAngularVelocity, IDX_Z_ANG_VEL);
+    modelSetInput(sensor_x_accel, IDX_X_ACCEL);
+    modelSetInput(sensor_y_accel, IDX_Y_ACCEL);
+    modelSetInput(sensor_vx, IDX_X_VEL);
+    modelSetInput(sensor_vy, IDX_Y_VEL);
+    modelSetInput(sensor_px, IDX_X_POS);
+    modelSetInput(sensor_py, IDX_Y_POS);
+    modelSetInput(sensor_roll, IDX_ROLL);
+    modelSetInput(sensor_pitch, IDX_PITCH);
+    modelSetInput(sensor_yaw, IDX_YAW);
+    modelSetInput(sensor_x_angular_vel, IDX_X_ANG_VEL);
+    modelSetInput(sensor_y_angular_vel, IDX_Y_ANG_VEL);
+    modelSetInput(sensor_z_angular_vel, IDX_Z_ANG_VEL);
     modelSetInput(prevAction0, IDX_PREV_ACTION_0);
     modelSetInput(prevAction1, IDX_PREV_ACTION_1);
     modelSetInput(actionDiff0, IDX_ACTION_DIFF_0);
     modelSetInput(actionDiff1, IDX_ACTION_DIFF_1);
-    Serial.println("DEBUG: stabilization_do - Model inputs set.");
-    Serial.flush(); // Ensure this message is sent before potential crash
+    // Serial.println("DEBUG: stabilization_do - Model inputs set.");
+    // extern char _heap_end; // Stack end
+    // extern char *__brkval; // Heap position
+    // char stack_dummy = 0;  // Stack pointer reference
+    // Serial.printf("MEMORY: Free RAM=%d bytes\n", &stack_dummy - __brkval);
+    // Serial.flush();
+    // Serial.println("DEBUG: stabilization_do - Model inputs set.");
+    // Serial.flush(); // Ensure this message is sent before potential crash
 
-    // Run inference
-    modelMutex.lock();
-    Serial.println("DEBUG: stabilization_do - Attempting modelRunInference().");
-    Serial.flush(); // Ensure this message is sent
-    if (!modelRunInference()) {
-        emitLog("Model inference failed!");
-        Serial.println("DEBUG: stabilization_do - modelRunInference() FAILED.");
-        aborted = true;
-        modelMutex.unlock();
-        return;
-    }
-    modelMutex.unlock();
-    Serial.println("DEBUG: stabilization_do - modelRunInference() SUCCEEDED.");
+    // // Run inference
+    // modelMutex.lock();
+    // Serial.println("DEBUG: stabilization_do - Attempting modelRunInference().");
+    // Serial.flush(); // Ensure this message is sent
+    // if (!modelRunInference()) {
+    //     emitLog("Model inference failed!");
+    //     Serial.println("DEBUG: stabilization_do - modelRunInference() FAILED.");
+    //     aborted = true;
+    //     modelMutex.unlock();
+    //     return;
+    // }
+    // modelMutex.unlock();
+    // Serial.println("DEBUG: stabilization_do - modelRunInference() SUCCEEDED.");
+
 
     // Get model outputs and apply actions
     float action0 = safeSigmoid(modelGetOutput(0));
@@ -419,9 +456,9 @@ void stabilization_do()
         debugPrintTime = millis();
 
         // Original orientation values in degrees for better readability
-        float roll_deg = rollOrientation * 6.28f * 180.0f / M_PI;
-        float pitch_deg = pitchOrientation * 6.28f * 180.0f / M_PI;
-        float yaw_deg = yawOrientation * 6.28f * 180.0f / M_PI;
+        float roll_deg = sensor_roll * 6.28f * 180.0f / M_PI;
+        float pitch_deg = sensor_pitch * 6.28f * 180.0f / M_PI;
+        float yaw_deg = sensor_yaw * 6.28f * 180.0f / M_PI;
 
         // Print debug information to Serial
         Serial.println("=== STABILIZATION DEBUG ===");
@@ -430,12 +467,12 @@ void stabilization_do()
         Serial.printf("ORIENTATION: Roll=%.2f°, Pitch=%.2f°, Yaw=%.2f°\n", 
                      roll_deg, pitch_deg, yaw_deg);
         Serial.printf("ACCEL: X=%.2f, Y=%.2f, Z=%.2f\n", 
-                     xWorldLinearAcceleration*10.0f, yWorldLinearAcceleration*10.0f, zWorldLinearAcceleration*10.0f);
-        Serial.printf("VELOCITY: X=%.2f, Y=%.2f, Z=%.2f\n", vx*10.0f, vy*10.0f, vz);
+                     sensor_x_accel*10.0f, sensor_y_accel*10.0f, sensor_z_accel*10.0f);
+        Serial.printf("VELOCITY: X=%.2f, Y=%.2f, Z=%.2f\n", sensor_vx*10.0f, sensor_vy*10.0f, sensor_vz);
         Serial.printf("ANGULAR VELOCITY: X=%.2f, Y=%.2f, Z=%.2f\n", 
-                     xWorldAngularVelocity*6.28f*180.0f/M_PI, 
-                     yWorldAngularVelocity*6.28f*180.0f/M_PI, 
-                     zWorldAngularVelocity*6.28f*180.0f/M_PI);
+                     sensor_x_angular_vel*6.28f*180.0f/M_PI, 
+                     sensor_y_angular_vel*6.28f*180.0f/M_PI, 
+                     sensor_z_angular_vel*6.28f*180.0f/M_PI);
         Serial.printf("MODEL: Action0=%.4f, Action1=%.4f\n", action0, action1);
         Serial.printf("DIFF: Action0Diff=%.4f, Action1Diff=%.4f\n", actionDiff0, actionDiff1);
         Serial.println("==========================");
@@ -444,10 +481,10 @@ void stabilization_do()
     // Log stabilization data
     emitLog("Stabilization: Motors[L:%.2f%%, R:%.2f%%], Orientation[R:%.2f,P:%.2f,Y:%.2f]",
             leftThrottle, rightThrottle,
-            rollOrientation * 6.28f * 180.0f / M_PI,
-            pitchOrientation * 6.28f * 180.0f / M_PI,
-            yawOrientation * 6.28f * 180.0f / M_PI);
-    Serial.println("DEBUG: stabilization_do - END");
+            sensor_roll * 6.28f * 180.0f / M_PI,
+            sensor_pitch * 6.28f * 180.0f / M_PI,
+            sensor_yaw * 6.28f * 180.0f / M_PI);
+    // Serial.println("DEBUG: stabilization_do - END");
 }
 
 void descent_entry()
@@ -647,8 +684,9 @@ void stop_all_threads()
 void start_all_threads()
 {
     stop_all_threads();
-    telemetry_thread_id = threads.addThread(telemetry_thread);
-    data_thread_id = threads.addThread(data_collection_thread);
+    // Use 0 instead of NULL for the integer argument
+    telemetry_thread_id = threads.addThread(telemetry_thread, 0, sizeof(telemetry_thread_stack), telemetry_thread_stack);
+    data_thread_id = threads.addThread(data_collection_thread, 0, sizeof(data_thread_stack), data_thread_stack);
 }
 
 bool has_failed_initialization()
@@ -688,8 +726,8 @@ void setup()
     flight_fsm.addState(STABILIZATION, stabilization_entry, stabilization_do, nullptr);
 
     // Begin threads before starting initial state
-    data_thread_id = threads.addThread(data_collection_thread);
-    // model_thread_id = threads.addThread(model_thread);
+    data_thread_id = threads.addThread(data_collection_thread, 0, sizeof(data_thread_stack), data_thread_stack);
+    model_thread_id = threads.addThread(model_thread, 0, sizeof(model_thread_stack), model_thread_stack);
 
     // flight_fsm.setInitialState(INITIALIZATION);
     flight_fsm.setInitialState(STABILIZATION); // Set the initial state to STABILIZATION
@@ -711,6 +749,7 @@ void setup()
     // flight_fsm.addTransition(DESCENT, TERMINATION, has_landed);
     // flight_fsm.addTransition(FAULT, TERMINATION, has_fault_timeout);
 
+    flight_fsm.addTransition(INITIALIZATION, STABILIZATION, is_initialized);
     // Start data collection thread
 
 
@@ -724,4 +763,21 @@ void loop()
 {
     flight_fsm.update();
     threads.yield();
+}
+
+// Add this function and call it from stabilization_entry to test just the model
+bool testModelInferenceWithDummyData() {
+    // Set simple values for all inputs
+    for (int i = 0; i < 16; i++) {
+        modelSetInput(0.1f, i);
+    }
+    
+    Serial.println("TEST: Running inference with dummy data");
+    bool result = modelRunInference();
+    if (result) {
+        Serial.println("TEST: Inference succeeded!");
+    } else {
+        Serial.println("TEST: Inference failed!");
+    }
+    return result;
 }

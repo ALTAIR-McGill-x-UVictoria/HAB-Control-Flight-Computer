@@ -14,8 +14,8 @@ struct StringMessage
     char text[MAX_MESSAGE_LENGTH];
 };
 
-LogQueue<ControlBoardData> telemetryTransmitQueue; // Changed to proper type
-LogQueue<StringMessage> sdCardLoggingQueue;
+DMAMEM LogQueue<ControlBoardData> telemetryTransmitQueue; // Changed to proper type
+DMAMEM LogQueue<StringMessage> sdCardLoggingQueue;
 
 extern SerialCommunication serialComm;
 
