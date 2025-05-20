@@ -98,6 +98,11 @@ DMAMEM static float sensor_px, sensor_py, sensor_pz;
 DMAMEM static float sensor_x_angular_vel, sensor_y_angular_vel, sensor_z_angular_vel;
 DMAMEM static float sensor_yaw, sensor_pitch, sensor_roll;
 
+// Add these global variables to track model state
+DMAMEM bool model_inputs_updated = false;
+DMAMEM bool model_outputs_updated = false;
+DMAMEM unsigned long last_model_run = 0;
+
 void initialization_entry()
 {
     // Init data storage
@@ -385,11 +390,32 @@ void stabilization_do()
     sensor_px /= 10.0f;
     sensor_py /= 10.0f;
 
-    // Convert degrees to radians and normalize
+    // Convert degrees to radians and normalize WITHOUT adding noise
     sensor_roll = (sensor_roll * M_PI / 180.0f) / 6.28f;
     sensor_pitch = (sensor_pitch * M_PI / 180.0f) / 6.28f;
     sensor_yaw = (sensor_yaw * M_PI / 180.0f) / 6.28f;
 
+    // Add low-pass filtering using the existing FILTER_FACTOR from Sensors.h
+    static float filtered_roll_local = sensor_roll;
+    static float filtered_pitch_local = sensor_pitch;
+    static float filtered_yaw_local = sensor_yaw;
+
+    // Apply low-pass filter (slowly blend new readings with previous filtered values)
+    filtered_roll_local = filtered_roll_local * (1.0f - FILTER_FACTOR) + sensor_roll * FILTER_FACTOR;
+    filtered_pitch_local = filtered_pitch_local * (1.0f - FILTER_FACTOR) + sensor_pitch * FILTER_FACTOR;
+    filtered_yaw_local = filtered_yaw_local * (1.0f - FILTER_FACTOR) + sensor_yaw * FILTER_FACTOR;
+
+    // Use the filtered values for the model inputs
+    modelSetInput(filtered_roll_local, IDX_ROLL);
+    modelSetInput(filtered_pitch_local, IDX_PITCH);
+    modelSetInput(filtered_yaw_local, IDX_YAW);
+
+    // Store the filtered values back
+    sensor_roll = filtered_roll_local;
+    sensor_pitch = filtered_pitch_local;
+    sensor_yaw = filtered_yaw_local;
+
+    // Convert degrees to radians and normalize WITHOUT adding noise
     sensor_x_angular_vel = (sensor_x_angular_vel * M_PI / 180.0f) / 6.28f;
     sensor_y_angular_vel = (sensor_y_angular_vel * M_PI / 180.0f) / 6.28f;
     sensor_z_angular_vel = (sensor_z_angular_vel * M_PI / 180.0f) / 6.28f;
@@ -439,9 +465,10 @@ void stabilization_do()
     float action0 = safeSigmoid(modelGetOutput(0));
     float action1 = safeSigmoid(modelGetOutput(1));
 
+    float percent = 1.0f; // Scale to 0-20% throttle
     // Apply throttle (scaling to 0-20% as in test_model.cpp)
-    float leftThrottle = action0 * 0.20 * 100.0;
-    float rightThrottle = action1 * 0.20 * 100.0;
+    float leftThrottle = action0 * percent * 100.0;
+    float rightThrottle = action1 * percent * 100.0;
     propulsion.setLeftThrottle(leftThrottle);
     propulsion.setRightThrottle(rightThrottle);
 
@@ -648,22 +675,49 @@ void telemetry_thread()
     }
 }
 
+// Update the model thread to use try_lock
 void model_thread()
 {
     Serial.println("DEBUG: model_thread - START");
     while (true)
     {
-        modelMutex.lock();
-        // Run the model inference
-        if (!modelRunInference())
-        {
-            emitLog("Model inference failed!");
-            aborted = true;
-            modelMutex.unlock();
-            return;
+        // Only run inference when new inputs are available
+        if (model_inputs_updated) {
+            bool mutexAcquired = modelMutex.try_lock();
+            if (mutexAcquired) {
+                // Run the model inference
+                if (!modelRunInference()) {
+                    emitLog("Model inference failed!");
+                    aborted = true;
+                    modelMutex.unlock();
+                    return;
+                }
+                
+                // Mark that new outputs are available and inputs have been processed
+                model_inputs_updated = false;
+                model_outputs_updated = true;
+                last_model_run = millis();
+                
+                modelMutex.unlock();
+                
+                // Print confirmation every 2 seconds
+                static unsigned long last_print = 0;
+                if (millis() - last_print > 2000) {
+                    Serial.println("MODEL: Inference successfully ran");
+                    last_print = millis();
+                }
+            } else {
+                // Debug message if mutex couldn't be acquired
+                static unsigned long lastMutexWarnTime = 0;
+                if (millis() - lastMutexWarnTime > 5000) {
+                    Serial.println("WARNING: Model thread could not acquire mutex");
+                    lastMutexWarnTime = millis();
+                }
+            }
         }
-        modelMutex.unlock();
-        threads.yield();
+        
+        // Yield to other threads with a short delay
+        threads.delay(10); // Increased delay to give main loop more time
     }
 }
 
@@ -712,57 +766,224 @@ bool has_failed_sensor_check()
 void setup()
 {
     Serial.begin(COMM_BAUD_RATE);
-
-    // Flight state machine
-    flight_fsm.addState(INITIALIZATION, initialization_entry, nullptr, nullptr);
-    flight_fsm.addState(TELEMETRY_CHECK, telemetry_check_entry, nullptr, nullptr);
-    flight_fsm.addState(BATTERY_CHECK, battery_check_entry, nullptr, nullptr);
-    flight_fsm.addState(SENSOR_CHECK, sensor_check_entry, nullptr, nullptr);
-    flight_fsm.addState(FAULT, fault_entry, nullptr, nullptr);
-    flight_fsm.addState(TERMINATION, termination_entry, nullptr, nullptr);
-    flight_fsm.addState(READY, ready_entry, ready_do, nullptr);
-    flight_fsm.addState(ASCENT, nullptr, ascent_do, nullptr);
-    // flight_fsm.addState(STABILIZATION, nullptr, stabilization_do, nullptr);
-    flight_fsm.addState(STABILIZATION, stabilization_entry, stabilization_do, nullptr);
-
-    // Begin threads before starting initial state
+    Serial.println("==== DIRECT RL MODEL & MOTOR CONTROL MODE ====");
+    
+    // Initialize SD card for logging
+    if (!SD.begin(BUILTIN_SDCARD)) {
+        Serial.println("WARNING: SD card failed, continuing without logging");
+    } else {
+        Serial.println("SD card initialized");
+    }
+    
+    // Initialize the RL model
+    Serial.println("Initializing TensorFlow Lite model...");
+    if (!modelInit(hab_model_tflite, tensor_arena, kTensorArenaSize)) {
+        Serial.println("ERROR: Model initialization failed!");
+        while(1); // Halt execution if model fails
+    }
+    Serial.println("Model initialization complete");
+    
+    // Test model with dummy data
+    if (testModelInferenceWithDummyData()) {
+        Serial.println("Model test passed");
+    } else {
+        Serial.println("Model test failed - may not work correctly");
+    }
+    
+    // Initialize propulsion system
+    Serial.println("Initializing propulsion system...");
+    if (!propulsion.init()) {
+        Serial.println("ERROR: Propulsion initialization failed!");
+        while(1); // Halt execution if propulsion fails
+    }
+    
+    // Calibrate ESCs
+    Serial.println("Calibrating ESCs...");
+    propulsion.calibrate();
+    Serial.println("Propulsion system ready");
+    
+    // Initialize sensors
+    Serial.println("Initializing sensors...");
+    sensors.begin();
+    if (!(sensors.status.imu1 || sensors.status.imu2 || sensors.status.imu3)) {
+        Serial.println("WARNING: No IMUs available, using simulated data");
+    } else {
+        Serial.println("At least one IMU available");
+    }
+    sensors.start();
+    
+    // Reset model state variables
+    prevAction0 = 0.0f;
+    prevAction1 = 0.0f;
+    actionDiff0 = 0.0f;
+    actionDiff1 = 0.0f;
+    
+    // Start data thread for logging only
     data_thread_id = threads.addThread(data_collection_thread, 0, sizeof(data_thread_stack), data_thread_stack);
-    model_thread_id = threads.addThread(model_thread, 0, sizeof(model_thread_stack), model_thread_stack);
-
-    // flight_fsm.setInitialState(INITIALIZATION);
-    flight_fsm.setInitialState(STABILIZATION); // Set the initial state to STABILIZATION
-
-    // Add transitions
-    // flight_fsm.addTransition(INITIALIZATION, TELEMETRY_CHECK, is_initialized);
-    // flight_fsm.addTransition(INITIALIZATION, FAULT, has_failed_initialization);
-    // flight_fsm.addTransition(TELEMETRY_CHECK, BATTERY_CHECK, has_telemetry);
-    // flight_fsm.addTransition(TELEMETRY_CHECK, FAULT, has_failed_telemetry);
-    // flight_fsm.addTransition(BATTERY_CHECK, SENSOR_CHECK, has_battery);
-    // flight_fsm.addTransition(BATTERY_CHECK, FAULT, has_failed_battery_check);
-    // flight_fsm.addTransition(SENSOR_CHECK, READY, has_sensors);
-    // flight_fsm.addTransition(SENSOR_CHECK, FAULT, has_failed_sensor_check);
-    // flight_fsm.addTransition(READY, ASCENT, is_ascending);
-    // flight_fsm.addTransition(ASCENT, STABILIZATION, can_stabilize);
-    // flight_fsm.addTransition(ASCENT, DESCENT, is_aborted);
-    // flight_fsm.addTransition(STABILIZATION, DESCENT, stabilization_timeout);
-    // flight_fsm.addTransition(STABILIZATION, DESCENT, is_aborted);
-    // flight_fsm.addTransition(DESCENT, TERMINATION, has_landed);
-    // flight_fsm.addTransition(FAULT, TERMINATION, has_fault_timeout);
-
-    flight_fsm.addTransition(INITIALIZATION, STABILIZATION, is_initialized);
-    // Start data collection thread
-
-
-    Serial.println("Flight computer initialized in STABILIZATION test mode");
-    Serial.println("Motor control data will be printed every 500ms");
-
-    last_time = millis();
+    
+    // DO NOT start model thread - we'll run inference directly
+    // model_thread_id = threads.addThread(model_thread, 0, sizeof(model_thread_stack), model_thread_stack);
+    
+    // Properly initialize the last model run time
+    last_model_run = millis();
+    
+    // Beep signals
+    tone(SPEAKER_PIN, 900, 200);
+    threads.delay(300);
+    tone(SPEAKER_PIN, 1200, 200);
+    threads.delay(300);
+    tone(SPEAKER_PIN, 1500, 200);
+    
+    Serial.println("System initialized! Starting direct motor control...");
 }
 
+// Modify the loop function to ensure proper mutex handling and thread safety
 void loop()
 {
-    flight_fsm.update();
-    threads.yield();
+    static unsigned long debugPrintTime = 0;
+    static unsigned long lastModelRunTime = 0;
+    static float leftThrottle = 0.0f;
+    static float rightThrottle = 0.0f;
+    
+    // Update sensor readings and run model at a controlled rate (10Hz is sufficient)
+    if (millis() - lastModelRunTime >= 100) {
+        lastModelRunTime = millis();
+        
+        // Get sensor readings
+        sensors.getFusedWorldLinearAcceleration(sensor_x_accel, sensor_y_accel, sensor_z_accel);
+        sensors.getRelativeVelocity(sensor_vx, sensor_vy, sensor_vz);
+        sensors.getRelativePosition(sensor_px, sensor_py, sensor_pz);
+        sensors.getFusedOrientation(sensor_yaw, sensor_pitch, sensor_roll);
+        sensors.getFusedWorldAngularVelocity(sensor_x_angular_vel, sensor_y_angular_vel, sensor_z_angular_vel);
+        
+        // Sanitize inputs (keep your existing code)
+        if (isnan(sensor_x_accel) || isinf(sensor_x_accel)) sensor_x_accel = 0;
+        // ...other sanity checks...
+        
+        // Normalize data
+        sensor_x_accel = (sensor_x_accel / 10.0f);
+        sensor_y_accel = (sensor_y_accel / 10.0f);
+        sensor_vx = (sensor_vx / 10.0f);
+        sensor_vy = (sensor_vy / 10.0f);
+        sensor_px = (sensor_px / 10.0f);
+        sensor_py = (sensor_py / 10.0f);
+        
+        // Convert degrees to radians and normalize WITHOUT adding noise
+        sensor_roll = (sensor_roll * M_PI / 180.0f) / 6.28f;
+        sensor_pitch = (sensor_pitch * M_PI / 180.0f) / 6.28f;
+        sensor_yaw = (sensor_yaw * M_PI / 180.0f) / 6.28f;
+
+        // Add low-pass filtering using the existing FILTER_FACTOR from Sensors.h
+        static float filtered_roll_local = sensor_roll;
+        static float filtered_pitch_local = sensor_pitch;
+        static float filtered_yaw_local = sensor_yaw;
+
+        // Apply low-pass filter (slowly blend new readings with previous filtered values)
+        filtered_roll_local = filtered_roll_local * (1.0f - FILTER_FACTOR) + sensor_roll * FILTER_FACTOR;
+        filtered_pitch_local = filtered_pitch_local * (1.0f - FILTER_FACTOR) + sensor_pitch * FILTER_FACTOR;
+        filtered_yaw_local = filtered_yaw_local * (1.0f - FILTER_FACTOR) + sensor_yaw * FILTER_FACTOR;
+
+        // Use the filtered values for the model inputs
+        modelSetInput(filtered_roll_local, IDX_ROLL);
+        modelSetInput(filtered_pitch_local, IDX_PITCH);
+        modelSetInput(filtered_yaw_local, IDX_YAW);
+
+        // Store the filtered values back
+        sensor_roll = filtered_roll_local;
+        sensor_pitch = filtered_pitch_local;
+        sensor_yaw = filtered_yaw_local;
+        
+        sensor_x_angular_vel = ((sensor_x_angular_vel * M_PI / 180.0f) / 6.28f);
+        sensor_y_angular_vel = ((sensor_y_angular_vel * M_PI / 180.0f) / 6.28f);
+        sensor_z_angular_vel = ((sensor_z_angular_vel * M_PI / 180.0f) / 6.28f);
+        
+        // Set model inputs
+        modelSetInput(sensor_x_accel, IDX_X_ACCEL);
+        modelSetInput(sensor_y_accel, IDX_Y_ACCEL);
+        modelSetInput(sensor_vx, IDX_X_VEL);
+        modelSetInput(sensor_vy, IDX_Y_VEL);
+        modelSetInput(sensor_px, IDX_X_POS);
+        modelSetInput(sensor_py, IDX_Y_POS);
+        modelSetInput(sensor_roll, IDX_ROLL);
+        modelSetInput(sensor_pitch, IDX_PITCH);
+        modelSetInput(sensor_yaw, IDX_YAW);
+        modelSetInput(sensor_x_angular_vel, IDX_X_ANG_VEL);
+        modelSetInput(sensor_y_angular_vel, IDX_Y_ANG_VEL);
+        modelSetInput(sensor_z_angular_vel, IDX_Z_ANG_VEL);
+        modelSetInput(prevAction0, IDX_PREV_ACTION_0);
+        modelSetInput(prevAction1, IDX_PREV_ACTION_1);
+        modelSetInput(actionDiff0, IDX_ACTION_DIFF_0);
+        modelSetInput(actionDiff1, IDX_ACTION_DIFF_1);
+        
+        // Run inference directly without threads
+        // Serial.print("Running inference... ");
+        if (modelRunInference()) {
+            // Serial.println("Success!");
+            last_model_run = millis();
+            
+            // Get model outputs
+            float action0 = safeSigmoid(modelGetOutput(0));
+            float action1 = safeSigmoid(modelGetOutput(1));
+            
+            // Apply throttle (scaling to 0-20% for safety)
+            leftThrottle = action0 * 0.20 * 100.0;
+            rightThrottle = action1 * 0.20 * 100.0;
+            propulsion.setLeftThrottle(leftThrottle);
+            propulsion.setRightThrottle(rightThrottle);
+            
+            // Update tracking variables for next iteration
+            actionDiff0 = action0 - prevAction0;
+            actionDiff1 = action1 - prevAction1;
+            prevAction0 = action0;
+            prevAction1 = action1;
+        } else {
+            Serial.println("Failed!");
+        }
+    }
+    
+    // Debug output every 500ms
+    if (millis() - debugPrintTime > 500) {
+        debugPrintTime = millis();
+        
+        // Calculate values locally
+        float roll_deg = sensor_roll * 6.28f * 180.0f / M_PI;
+        float pitch_deg = sensor_pitch * 6.28f * 180.0f / M_PI;
+        float yaw_deg = sensor_yaw * 6.28f * 180.0f / M_PI;
+        float x_ang_vel_deg = sensor_x_angular_vel * 6.28f * 180.0f / M_PI;
+        float y_ang_vel_deg = sensor_y_angular_vel * 6.28f * 180.0f / M_PI;
+        float z_ang_vel_deg = sensor_z_angular_vel * 6.28f * 180.0f / M_PI;
+        
+        Serial.println("=== MOTOR CONTROL STATUS ===");
+        Serial.printf("Time: %lu ms, Last model run: %lu ms ago\n", 
+                     millis(), millis() - last_model_run);
+        
+        // IMU Data Section
+        Serial.println("--- IMU SENSOR DATA ---");
+        Serial.printf("ORIENTATION: Roll=%.2f°, Pitch=%.2f°, Yaw=%.2f°\n", 
+                     roll_deg, pitch_deg, yaw_deg);
+        Serial.printf("ANGULAR VEL: X=%.2f°/s, Y=%.2f°/s, Z=%.2f°/s\n", 
+                     x_ang_vel_deg, y_ang_vel_deg, z_ang_vel_deg);
+        Serial.printf("ACCELERATION: X=%.2fm/s², Y=%.2fm/s², Z=%.2fm/s²\n", 
+                     sensor_x_accel*10.0f, sensor_y_accel*10.0f, sensor_z_accel*10.0f);
+        Serial.printf("VELOCITY: X=%.2fm/s, Y=%.2fm/s, Z=%.2fm/s\n", 
+                     sensor_vx*10.0f, sensor_vy*10.0f, sensor_vz*10.0f);
+        Serial.printf("POSITION: X=%.2fm, Y=%.2fm, Z=%.2fm\n", 
+                     sensor_px*10.0f, sensor_py*10.0f, sensor_pz*10.0f);
+        
+        // IMU Status (if available)
+        Serial.printf("IMU STATUS: IMU1=%s, IMU2=%s, IMU3=%s\n",
+                     sensors.status.imu1 ? "OK" : "FAIL",
+                     sensors.status.imu2 ? "OK" : "FAIL", 
+                     sensors.status.imu3 ? "OK" : "FAIL");
+
+        // Control Output Section
+        Serial.println("--- CONTROL OUTPUTS ---");
+        Serial.printf("MOTORS: Left=%.2f%%, Right=%.2f%%\n", 
+                     leftThrottle, rightThrottle);
+        Serial.printf("MODEL: Action0=%.4f, Action1=%.4f\n", prevAction0, prevAction1);
+        Serial.printf("DIFF: Action0Diff=%.4f, Action1Diff=%.4f\n", actionDiff0, actionDiff1);
+        Serial.println("==========================");
+    }
 }
 
 // Add this function and call it from stabilization_entry to test just the model

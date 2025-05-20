@@ -11,8 +11,9 @@ class Propulsion {
 public:
     // Constructor and destructor
     Propulsion(int esc1Pin = 4, int esc2Pin = 5)
-        : ESC1_PIN(esc1Pin), ESC2_PIN(esc2Pin), esc1_pwm(nullptr), esc2_pwm(nullptr) {
-        // Constructor initializes pin numbers and nulls the PWM pointers
+        : ESC1_PIN(esc1Pin), ESC2_PIN(esc2Pin), esc1_pwm(nullptr), esc2_pwm(nullptr),
+          leftThrottlePercent(0.0f), rightThrottlePercent(0.0f) {
+        // Constructor initializes pin numbers, nulls the PWM pointers, and sets initial throttle to 0
     }
     
     ~Propulsion() {
@@ -81,6 +82,8 @@ public:
         if (esc1_pwm && esc2_pwm) {
             esc1_pwm->setPWM(ESC1_PIN, ESC_FREQUENCY, MIN_DUTY_CYCLE);
             esc2_pwm->setPWM(ESC2_PIN, ESC_FREQUENCY, MIN_DUTY_CYCLE);
+            leftThrottlePercent = 0.0f;
+            rightThrottlePercent = 0.0f;
         }
     }
     
@@ -90,6 +93,8 @@ public:
         if (esc1_pwm && esc2_pwm) {
             esc1_pwm->setPWM(ESC1_PIN, ESC_FREQUENCY, dutyCycle);
             esc2_pwm->setPWM(ESC2_PIN, ESC_FREQUENCY, dutyCycle);
+            leftThrottlePercent = throttlePercent;
+            rightThrottlePercent = throttlePercent;
         }
     }
     
@@ -97,6 +102,7 @@ public:
         float dutyCycle = computeDutyCycle(throttlePercent);
         if (esc1_pwm) {
             esc1_pwm->setPWM(ESC1_PIN, ESC_FREQUENCY, dutyCycle);
+            leftThrottlePercent = throttlePercent;
         }
     }
     
@@ -104,7 +110,17 @@ public:
         float dutyCycle = computeDutyCycle(throttlePercent);
         if (esc2_pwm) {
             esc2_pwm->setPWM(ESC2_PIN, ESC_FREQUENCY, dutyCycle);
+            rightThrottlePercent = throttlePercent;
         }
+    }
+
+    // Add these new getter methods
+    float getLeftThrottle() const {
+        return leftThrottlePercent;
+    }
+    
+    float getRightThrottle() const {
+        return rightThrottlePercent;
     }
 
 private:
@@ -131,6 +147,10 @@ private:
     // PWM objects for the ESCs
     Teensy_PWM* esc1_pwm;
     Teensy_PWM* esc2_pwm;
+
+    // Add these new private members to track throttle percentages
+    float leftThrottlePercent;
+    float rightThrottlePercent;
 
     // Helper function to map throttle percentage to duty cycle
     float computeDutyCycle(float throttlePercent) const {

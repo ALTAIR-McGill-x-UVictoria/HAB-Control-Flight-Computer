@@ -20,6 +20,10 @@ library to provide the following data :
 
 #include "Sensors.h"
 
+float Sensors::filtered_roll = 0.0f;
+float Sensors::filtered_pitch = 0.0f;
+float Sensors::filtered_yaw = 0.0f;
+
 void Sensors::begin()
 {
   if (!status.imu1 && !status.imu2)
@@ -275,11 +279,29 @@ void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVe
 
 void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation)
 {
+  static bool allSensorsWorking = true;
   std::vector<float> yawValues = {imu1Data.yawOrientation, imu2Data.yawOrientation, imu3Data.yawOrientation};
   std::vector<float> pitchValues = {imu1Data.pitchOrientation, imu2Data.pitchOrientation, imu3Data.pitchOrientation};
   std::vector<float> rollValues = {imu1Data.rollOrientation, imu2Data.rollOrientation, imu3Data.rollOrientation};
   std::vector<byte> accuracyValues = {imu1Data.rotationAccuracy, imu2Data.rotationAccuracy, imu3Data.rotationAccuracy};
   std::vector<float> orientationAccuracy = {imu1Data.orientationAccuracy, imu2Data.orientationAccuracy, imu3Data.orientationAccuracy};
+
+  // Check if any sensors are valid
+  bool anySensorValid = false;
+  for (byte accuracy : accuracyValues) {
+    if (accuracy >= 0) {
+      anySensorValid = true;
+      break;
+    }
+  }
+  
+  if (!anySensorValid && allSensorsWorking) {
+    Serial.println("WARNING: All orientation sensors have invalid data!");
+    allSensorsWorking = false;
+  } else if (anySensorValid && !allSensorsWorking) {
+    Serial.println("INFO: At least one orientation sensor is now working");
+    allSensorsWorking = true;
+  }
 
   // call sensorFusion function
   yawOrientation = sensorFusion(yawValues, accuracyValues, orientationAccuracy);

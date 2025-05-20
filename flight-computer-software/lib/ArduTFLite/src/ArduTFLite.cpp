@@ -47,13 +47,13 @@ bool modelRunInference(){
         return false;
     }
     
-    Serial.println("DEBUG: Starting inference...");
+    // Serial.println("DEBUG: Starting inference...");
     TfLiteStatus invokeStatus = tflInterpreter->Invoke();
     if (invokeStatus != kTfLiteOk) {
         Serial.printf("ERROR: Inference failed with status code %d\n", invokeStatus);
         return false;
     }
-    Serial.println("DEBUG: Inference completed successfully");
+    // Serial.println("DEBUG: Inference completed successfully");
     return true;
 }
 

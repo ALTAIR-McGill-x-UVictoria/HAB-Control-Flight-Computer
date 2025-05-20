@@ -37,6 +37,8 @@ library to provide the following data :
 #define TEMPERATURE_TIMEOUT 500
 #define IMU_TIMEOUT 500
 
+#define FILTER_FACTOR 0.1f  // Adjust between 0.01 (very smooth) and 0.5 (responsive)
+
 struct SensorStatus
 {
   bool pressure;
@@ -198,6 +200,8 @@ private:
   // params: float i, float j, float k, float real, float &conj_i, float &conj_j, float &conj_k, float &conj_real
   void quaternionConjugate(float i, float j, float k, float real, 
                           float &conj_i, float &conj_j, float &conj_k, float &conj_real);
+
+  static float filtered_roll, filtered_pitch, filtered_yaw;
 };
 
 #endif // SENSORS_H
