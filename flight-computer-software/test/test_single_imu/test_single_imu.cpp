@@ -1,483 +1,411 @@
-/**
- * Test Single IMU - Comprehensive debugging tool
- * 
- * This test program initializes a single BNO080 IMU and prints all 
- * available data to the terminal for debugging purposes.
- */
-
 #include <Arduino.h>
 #include <Wire.h>
 #include "SparkFun_BNO080_Arduino_Library.h"
 
-// Create IMU instance
-BNO080 imu;
+BNO080 imu1;
 
-// Constants
-#define IMU_UPDATE_RATE 50  // Hz (how often to read from IMU)
-#define SERIAL_BAUD_RATE 115200
-#define I2C_CLOCK_SPEED 40000  // Further reduced for reliability (from 100000)
-#define IMU_1_ADDRESS 0x4A   // IMU1 address (on Wire1)
-#define IMU_2_ADDRESS 0x4B   // IMU2 address (on Wire1)
-#define IMU_3_ADDRESS 0x4A   // IMU3 address (on Wire2)
+// Variables to store latest sensor readings
+float accelX, accelY, accelZ, accelAccuracy;
+float gyroX, gyroY, gyroZ, gyroAccuracy;
+float magX, magY, magZ, magAccuracy;
+float quatI, quatJ, quatK, quatReal, quatAccuracy;
+float roll, pitch, yaw;
+float linAccelX, linAccelY, linAccelZ, linAccelAccuracy;
+float gravityX, gravityY, gravityZ;
 
-// Hardware reset pin definitions - adjust according to your hardware
-#define IMU_RESET_PIN 14     // Connected to RESET pin on BNO080 (if available)
-#define IMU_PS0_PIN 15       // Connected to PS0 pin for I2C address control (if available)
-#define IMU_PS1_PIN 16       // Connected to PS1 pin for I2C address control (if available)
-#define HARDWARE_RESET_AVAILABLE true  // Set to true if reset pin is connected
+// Counters to track which sensors are reporting
+uint32_t accelCount = 0;
+uint32_t gyroCount = 0;
+uint32_t magCount = 0;
+uint32_t quatCount = 0;
+uint32_t linAccelCount = 0;
+uint32_t gravityCount = 0;
 
-// Statistics tracking
-unsigned long resetCount = 0;
-unsigned long packetsReceived = 0;
-unsigned long lastPacketTime = 0;
-unsigned long startTime = 0;
-bool imuConnected = false;
+// Print interval
+const unsigned long PRINT_INTERVAL = 500; // Extended to 2 seconds
+unsigned long lastPrintTime = 0;
 
-// Debugging counters
-unsigned long loopCount = 0;
-unsigned long dataAvailableCount = 0;
-unsigned long lastDebugTime = 0;
+// Add these variables to track real timing between sensor reports
+unsigned long lastAccelTime = 0;
+unsigned long lastGyroTime = 0;
+unsigned long lastMagTime = 0;
+unsigned long lastQuatTime = 0;
+unsigned long lastLinAccelTime = 0;
+unsigned long lastGravityTime = 0;
 
-// Rotation vector accuracy values
-const char* getAccuracyString(byte accuracy) {
-  switch(accuracy) {
-    case 0: return "Unreliable";
-    case 1: return "Low";
-    case 2: return "Medium";
-    case 3: return "High";
-    default: return "Unknown";
-  }
-}
+// Arrays to store timing statistics
+#define TIMING_SAMPLES 20
+unsigned long accelIntervals[TIMING_SAMPLES] = {0};
+unsigned long gyroIntervals[TIMING_SAMPLES] = {0};
+unsigned long magIntervals[TIMING_SAMPLES] = {0};
+unsigned long quatIntervals[TIMING_SAMPLES] = {0};
+unsigned long linAccelIntervals[TIMING_SAMPLES] = {0};
+unsigned long gravityIntervals[TIMING_SAMPLES] = {0};
 
-// Global variables for I2C scanning
-byte foundDevices = 0;
-
-// Function to scan I2C bus and find connected devices
-void scanI2CBus(TwoWire &wire) {
-  foundDevices = 0;
-  Serial.println("\n=== I2C BUS SCAN ===");
-  Serial.print("Scanning I2C bus on ");
-  if (&wire == &Wire) Serial.print("Wire (I2C0)");
-  else if (&wire == &Wire1) Serial.print("Wire1 (I2C1)");
-  else Serial.print("Wire2 (I2C2)");
-  Serial.println("...");
-  
-  for (byte address = 1; address < 127; address++) {
-    wire.beginTransmission(address);
-    byte error = wire.endTransmission();
-    
-    if (error == 0) {
-      Serial.print("Device found at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.print(" (");
-      Serial.print(address);
-      Serial.print(")");
-      
-      // Identify known IMU configurations
-      if (&wire == &Wire1 && address == IMU_1_ADDRESS) 
-        Serial.print(" - Matches IMU1 configuration!");
-      else if (&wire == &Wire1 && address == IMU_2_ADDRESS)
-        Serial.print(" - Matches IMU2 configuration!");
-      else if (&wire == &Wire2 && address == IMU_3_ADDRESS)
-        Serial.print(" - Matches IMU3 configuration!");
-        
-      Serial.println();
-      foundDevices++;
-    }
-  }
-  
-  if (foundDevices == 0) {
-    Serial.println("No I2C devices found on this bus");
-  } else {
-    Serial.print("Found ");
-    Serial.print(foundDevices);
-    Serial.println(" device(s)");
-  }
-  Serial.println("=====================");
-}
-
-// Function to perform hardware reset of the IMU if pins are available
-void hardwareResetIMU() {
-  if (!HARDWARE_RESET_AVAILABLE) {
-    Serial.println("Hardware reset not configured - skipping");
-    return;
-  }
-  
-  Serial.println("Performing hardware reset of IMU");
-  
-  // Configure reset pin
-  pinMode(IMU_RESET_PIN, OUTPUT);
-  
-  // Configure PS0/PS1 pins if they're connected
-  pinMode(IMU_PS0_PIN, OUTPUT);
-  pinMode(IMU_PS1_PIN, OUTPUT);
-  
-  // Reset sequence
-  digitalWrite(IMU_RESET_PIN, HIGH);
-  delay(10);
-  digitalWrite(IMU_RESET_PIN, LOW); // Active low reset
-  delay(50);  // Hold in reset for 50ms
-  digitalWrite(IMU_RESET_PIN, HIGH);
-  delay(500); // Give IMU time to boot up after reset
-  
-  Serial.println("Hardware reset completed");
-}
-
-// Function to cycle I2C power if possible
-void cycleI2CPower() {
-  Serial.println("Cycling I2C power if supported...");
-  
-  // Turn off I2C - Note: implementation depends on hardware
-  Wire.end();
-  Wire1.end();
-  #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(ARDUINO_TEENSY36)
-  Wire2.end();
-  #endif
-  
-  delay(500);
-  
-  // Restart I2C buses
-  Wire.begin();
-  Wire1.begin();
-  Wire.setClock(I2C_CLOCK_SPEED);
-  Wire1.setClock(I2C_CLOCK_SPEED);
-  
-  #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(ARDUINO_TEENSY36)
-  Wire2.begin();
-  Wire2.setClock(I2C_CLOCK_SPEED);
-  #endif
-  
-  Serial.println("I2C bus restarted");
-}
-
-// Function to initialize the IMU with basic reports first
-bool initIMU() {
-  // First try hardware reset if pins are connected
-  hardwareResetIMU();
-  
-  // Cycle I2C power if supported
-  cycleI2CPower();
-  
-  // Scan all available I2C buses to see what's connected
-  Wire1.begin();
-  Wire1.setClock(I2C_CLOCK_SPEED);
-  scanI2CBus(Wire1);
-  
-  Wire.begin();
-  Wire.setClock(I2C_CLOCK_SPEED);
-  scanI2CBus(Wire);
-  
-  // Also check Wire2 if it's available on this platform
-  #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(ARDUINO_TEENSY36)
-  Wire2.begin();
-  Wire2.setClock(I2C_CLOCK_SPEED);
-  scanI2CBus(Wire2);
-  #endif
-  
-  Serial.println("Attempting direct hardware reset sequence...");
-  
-  // Try all known IMU configurations from the system
-  // Try IMU1 configuration (Wire1, 0x4A)
-  Serial.println("Trying IMU1 configuration (Wire1, 0x4A)...");
-  Wire1.begin();
-  Wire1.setClock(I2C_CLOCK_SPEED);
-  
-  // Reset I2C bus by toggling clock (advanced fix)
-  Serial.println("Resetting I2C bus state...");
-  #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40)
-  const int SCL1_PIN = 16; // Wire1 SCL pin on Teensy 4.0/4.1
-  #elif defined(ARDUINO_TEENSY36)
-  const int SCL1_PIN = 37; // Wire1 SCL pin on Teensy 3.6
-  #else
-  const int SCL1_PIN = SCL; // Default to standard SCL pin
-  #endif
-  
-  pinMode(SCL1_PIN, OUTPUT); 
-  digitalWrite(SCL1_PIN, LOW);
-  delay(100);
-  digitalWrite(SCL1_PIN, HIGH);
-  delay(100);
-  pinMode(SCL1_PIN, INPUT);
-  delay(100);
-  
-  // Try with retry pattern
-  bool imuSuccess = false;
-  for (int retry = 0; retry < 3 && !imuSuccess; retry++) {
-    Serial.print("Connection attempt #");
-    Serial.println(retry + 1);
-    
-    if (imu.begin(IMU_1_ADDRESS, Wire1)) {
-      Serial.println("IMU connected as IMU1 (Wire1, 0x4A)");
-      
-      // Use full reset sequence
-      Serial.println("Performing complete reset sequence...");
-      imu.softReset();
-      delay(100);
-      imu.resetReason(); // Clear any reset reason
-      delay(100);
-      
-      // Set to default power mode
-      Serial.println("Setting power mode...");
-      delay(100);
-      
-      // Try enabling just one feature
-      Serial.println("Enabling rotation vector...");
-      imu.enableRotationVector(100); // Try lower report rate
-      delay(300);
-      
-      // Check for data with longer timeout
-      Serial.println("Checking for data (extended wait)...");
-      unsigned long startCheck = millis();
-      while (millis() - startCheck < 5000) { // Longer 5-second timeout
-        if (imu.dataAvailable()) {
-          Serial.println("Data confirmed available from IMU1!");
-          imuSuccess = true;
-          break;
-        }
-        
-        // Print status info
-        if ((millis() - startCheck) % 1000 == 0) {
-          Serial.print(".");
-        }
-        delay(10);
-      }
-      
-      if (imuSuccess) {
-        Serial.println("\nIMU successfully providing data!");
-        return true;
-      } else {
-        Serial.println("\nConnected to IMU1 but no data available after extended wait.");
-        // Try another approach if this one failed
-        imu.softReset();
-        delay(300);
-      }
-    }
-  }
-  
-  // Try IMU2 configuration (Wire1, 0x4B)
-  Serial.println("Trying IMU2 configuration (Wire1, 0x4B)...");
-  for (int retry = 0; retry < 3 && !imuSuccess; retry++) {
-    Serial.print("Connection attempt #");
-    Serial.println(retry + 1);
-    
-    if (imu.begin(IMU_2_ADDRESS, Wire1)) {
-      Serial.println("IMU connected as IMU2 (Wire1, 0x4B)");
-      // Similar initialization sequence as above
-      // ...
-      
-      // Check for data with longer timeout
-      Serial.println("Checking for data (extended wait)...");
-      unsigned long startCheck = millis();
-      while (millis() - startCheck < 5000) {
-        if (imu.dataAvailable()) {
-          Serial.println("Data confirmed available from IMU2!");
-          imuSuccess = true;
-          break;
-        }
-        
-        if ((millis() - startCheck) % 1000 == 0) {
-          Serial.print(".");
-        }
-        delay(10);
-      }
-      
-      if (imuSuccess) {
-        Serial.println("\nIMU2 successfully providing data!");
-        return true;
-      }
-    }
-  }
-  
-  // Try IMU3 configuration (Wire2, 0x4A) if available
-  #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(ARDUINO_TEENSY36)
-  Serial.println("Trying IMU3 configuration (Wire2, 0x4A)...");
-  Wire2.begin();
-  Wire2.setClock(I2C_CLOCK_SPEED);
-  
-  if (imu.begin(IMU_3_ADDRESS, Wire2)) {
-    Serial.println("IMU connected as IMU3 (Wire2, 0x4A)");
-    imu.softReset();
-    delay(500);
-    imu.enableRotationVector(50);
-    delay(300);
-    
-    // Check for data
-    Serial.println("Checking for data availability...");
-    unsigned long startCheck = millis();
-    while (millis() - startCheck < 2000) {
-      if (imu.dataAvailable()) {
-        Serial.println("Data confirmed available from IMU3!");
-        return true;
-      }
-      delay(10);
-    }
-    
-    Serial.println("Connected to IMU3 but no data available. Proceeding anyway.");
-    return true;
-  }
-  #endif
-  
-  // Final fallback - if IMU is connected but not responding, proceed anyway
-  Serial.println("All recovery methods exhausted.");
-  if (imu.begin(IMU_1_ADDRESS, Wire1) || imu.begin(IMU_2_ADDRESS, Wire1)) {
-    Serial.println("IMU connected but not responding - proceeding anyway.");
-    imu.enableRotationVector(10); // Try ultra-low rate
-    return true;
-  }
-  
-  Serial.println("IMU initialization failed on all configurations");
-  return false;
-}
+// Array indices
+uint8_t accelIndex = 0;
+uint8_t gyroIndex = 0;
+uint8_t magIndex = 0;
+uint8_t quatIndex = 0;
+uint8_t linAccelIndex = 0;
+uint8_t gravityIndex = 0;
 
 void setup() {
-  // Initialize serial communication
-  Serial.begin(SERIAL_BAUD_RATE);
-  delay(500); // Wait for serial to initialize
+  // Initialize serial for debugging
+  Serial.begin(115200);
+  delay(1000); // Give serial time to initialize
+  Serial.println("\nBNO080 IMU Comprehensive Debugging");
   
-  Serial.println("\n=== BNO080 IMU Test and Debug Tool ===");
+  // Initialize I2C
+  Wire1.begin();
+  Wire1.setClock(400000); // Try with 400kHz for better performance
   
-  // Try to initialize the IMU
+  // Give the IMU time to boot
+  delay(500); // Increased boot time
+  
+  // Initialize IMU with specified address and Wire1
   Serial.println("Initializing IMU...");
-  imuConnected = initIMU();
-
-  if (imuConnected) {
-    Serial.println("IMU initialization successful!");
-    startTime = millis();
-  } else {
-    Serial.println("Could not connect to IMU. Will retry in loop()");
-  }
+  bool status = imu1.begin(0x4A, Wire1, -1);
   
-  Serial.println("Setup complete. Monitoring IMU data...");
-  Serial.println("============================================");
-  lastDebugTime = millis();
-}
-
-void loop() {
-  loopCount++;
-  
-  // Print diagnostic info every second even if no data available
-  if (millis() - lastDebugTime >= 1000) {
-    lastDebugTime = millis();
-    Serial.printf("\nDiagnostics: Loop count=%lu, Data packets=%lu, Connection status=%s\n",
-                  loopCount, dataAvailableCount, imuConnected ? "Connected" : "Disconnected");
-    Serial.printf("Time since last packet: %lu ms\n", 
-                  lastPacketTime > 0 ? millis() - lastPacketTime : 0);
-    loopCount = 0; // Reset for the next interval
+  if (!status) {
+    Serial.println("First address failed. Trying alternate address...");
+    status = imu1.begin(0x4B, Wire1, -1);
     
-    // Attempt recovery if needed
-    if (lastPacketTime == 0 || millis() - lastPacketTime > 3000) {
-      Serial.println("No data received recently. Attempting recovery...");
-      
-      // If we've never received data or it's been too long
-      if (!imuConnected || millis() - lastPacketTime > 5000) {
-        Serial.println("Reinitializing IMU with full detection sequence...");
-        imu.softReset();
-        delay(300); // Longer delay for soft reset
-        imuConnected = initIMU();
-        
-        // Try forcing a different I2C speed as a last resort
-        if (!imuConnected) {
-          Serial.println("Trying with very slow I2C clock...");
-          Wire1.setClock(10000); // Ultra slow I2C
-          Wire.setClock(10000);  // Ultra slow I2C
-          imuConnected = initIMU();
-        }
-      } else {
-        // Try resetting and re-enabling reports
-        Serial.println("Soft-resetting IMU...");
-        imu.softReset();
-        delay(300); // Longer delay
-        imu.enableRotationVector(IMU_UPDATE_RATE);
+    if (!status) {
+      Serial.println("ERROR: IMU initialization failed. Check connections.");
+      Serial.println("Verify the following:");
+      Serial.println("1. Power connections to the IMU");
+      Serial.println("2. I2C connections (SDA, SCL)");
+      Serial.println("3. I2C pullup resistors are present");
+      while (1) {
         delay(100);
       }
     }
   }
+  
+  Serial.println("IMU initialized successfully!");
+  
+  // Try a soft reset first
+  Serial.println("Performing soft reset...");
+  imu1.softReset();
+  delay(500);
+  
+  Serial.println("Configuring IMU...");
+  
+  // // Try different update rates for the problematic sensors
+  Serial.print("Enabling accelerometer... ");
+  imu1.enableAccelerometer(50); // Try faster update rate (25ms)
+  Serial.println("DONE");
+  
+  delay(100);
+  Serial.print("Enabling gyroscope... ");
+  imu1.enableGyro(50); // Keep original rate for comparison
+  Serial.println("DONE");
+  
+  delay(100);
+  Serial.print("Enabling magnetometer... ");
+  imu1.enableMagnetometer(50); // Try faster update rate (25ms)
+  Serial.println("DONE");
+  
+  delay(100);
+  Serial.print("Enabling rotation vector... ");
+  imu1.enableRotationVector(50); // Keep original rate for comparison
+  Serial.println("DONE");
+  
+  delay(100);
+  Serial.print("Enabling linear accelerometer... ");
+  imu1.enableLinearAccelerometer(50); // Try faster update rate (25ms)
+  Serial.println("DONE");
+  
+  delay(100);
+  Serial.print("Enabling gravity... ");
+  imu1.enableGravity(50); // Try faster update rate (25ms)
+  Serial.println("DONE");
+  
+  Serial.println("All sensors configured, beginning data stream...");
+  delay(1000); // Longer delay to ensure sensors initialize fully
+}
 
-  // If we're not connected, keep trying to initialize
-  if (!imuConnected) {
-    static unsigned long lastRetry = 0;
-    if (millis() - lastRetry > 5000) {
-      lastRetry = millis();
-      Serial.println("Retrying IMU connection...");
-      imuConnected = initIMU();
-    }
-    delay(10);
-    return;
-  }
-
-  // Check if IMU has new data (this is key for diagnostics)
-  if (imu.dataAvailable()) {
-    dataAvailableCount++;
-    lastPacketTime = millis();
-    packetsReceived++;
+void loop() {
+  static unsigned long lastSensorTime = 0;
+  static uint8_t lastSensorType = 0;
+  
+  // Check if new IMU data is available and update our stored values
+  if (imu1.dataAvailable()) {
+    // Get current sensor type that has new data
+    uint8_t sensorType = imu1.getReadings();
+    unsigned long currentTime = millis();
     
-    // Check for resets
-    if (imu.hasReset()) {
-      resetCount++;
-      Serial.println("\n!!! IMU RESET DETECTED !!!");
-      
-      // Re-enable reports
-      Serial.println("Re-enabling reports after reset");
-      delay(50);
-      imu.enableRotationVector(IMU_UPDATE_RATE);
-      delay(50);
-      
-      // Only gradually add other reports after we verify the IMU is stable
-      if (packetsReceived > 100) {
-        imu.enableAccelerometer(IMU_UPDATE_RATE);
-        imu.enableGyro(IMU_UPDATE_RATE);
-        delay(50);
-      }
-    }
-    
-    // After receiving enough packets successfully, enable all reports
-    static bool allReportsEnabled = false;
-    if (!allReportsEnabled && packetsReceived > 50) {
-      Serial.println("\nIMU stable, enabling additional reports...");
-      imu.enableAccelerometer(IMU_UPDATE_RATE);
-      delay(50);
-      imu.enableGyro(IMU_UPDATE_RATE);
-      delay(50);
-      imu.enableLinearAccelerometer(IMU_UPDATE_RATE);
-      delay(50);
-      imu.enableMagnetometer(IMU_UPDATE_RATE);
-      delay(50);
-      allReportsEnabled = true;
-    }
-    
-    // ROTATION VECTOR (orientation)
-    float quatI = imu.getQuatI();
-    float quatJ = imu.getQuatJ();
-    float quatK = imu.getQuatK();
-    float quatReal = imu.getQuatReal();
-    byte quatAccuracy = imu.getQuatRadianAccuracy();
-    
-    // Convert quaternion to Euler angles (roll, pitch, yaw)
-    float roll = atan2(2.0f * (quatReal * quatI + quatJ * quatK), 
-                      1.0f - 2.0f * (quatI * quatI + quatJ * quatJ)) * 180.0f / PI;
-    float pitch = asin(2.0f * (quatReal * quatJ - quatK * quatI)) * 180.0f / PI;
-    float yaw = atan2(2.0f * (quatReal * quatK + quatI * quatJ), 
-                     1.0f - 2.0f * (quatJ * quatJ + quatK * quatK)) * 180.0f / PI;
-
-    // Simplified output to reduce serial overhead
-    static unsigned long lastOutputTime = 0;
-    if (millis() - lastOutputTime >= 250) {
-      lastOutputTime = millis();
-      Serial.println("\n=== IMU DATA ===");
-      Serial.printf("Packets: %lu, Resets: %lu\n", packetsReceived, resetCount);
-      Serial.printf("Euler: Roll=%.1f°, Pitch=%.1f°, Yaw=%.1f° (Accuracy: %s)\n", 
-                   roll, pitch, yaw, getAccuracyString(quatAccuracy));
-
-      // Show other data if available
-      if (allReportsEnabled) {
-        Serial.printf("Accel: X=%.1f, Y=%.1f, Z=%.1f m/s²\n", 
-                     imu.getAccelX(), imu.getAccelY(), imu.getAccelZ());
-        Serial.printf("Gyro: X=%.1f, Y=%.1f, Z=%.1f °/s\n", 
-                     imu.getGyroX() * 180.0f / PI, imu.getGyroY() * 180.0f / PI, imu.getGyroZ() * 180.0f / PI);
-      }
+    // Update the appropriate sensor values based on which sensor had new data
+    switch (sensorType) {
+      case SENSOR_REPORTID_ACCELEROMETER:
+        accelX = imu1.getAccelX();
+        accelY = imu1.getAccelY();
+        accelZ = imu1.getAccelZ();
+        accelAccuracy = imu1.getAccelAccuracy();
+        
+        // Track actual timing between accelerometer readings
+        if (lastAccelTime > 0) {
+          accelIntervals[accelIndex] = currentTime - lastAccelTime;
+          accelIndex = (accelIndex + 1) % TIMING_SAMPLES;
+        }
+        lastAccelTime = currentTime;
+        accelCount++;
+        if (accelX == 0.0 && accelY == 0.0 && accelZ == 0.0) {
+          Serial.println("WARNING: All accelerometer values are zero!");
+        }
+        break;
+        
+      case SENSOR_REPORTID_GYROSCOPE:
+        gyroX = imu1.getGyroX();
+        gyroY = imu1.getGyroY();
+        gyroZ = imu1.getGyroZ();
+        gyroAccuracy = imu1.getGyroAccuracy();
+        
+        // Track actual timing between gyroscope readings
+        if (lastGyroTime > 0) {
+          gyroIntervals[gyroIndex] = currentTime - lastGyroTime;
+          gyroIndex = (gyroIndex + 1) % TIMING_SAMPLES;
+        }
+        lastGyroTime = currentTime;
+        gyroCount++;
+        break;
+        
+      case SENSOR_REPORTID_MAGNETIC_FIELD:
+        magX = imu1.getMagX();
+        magY = imu1.getMagY();
+        magZ = imu1.getMagZ();
+        magAccuracy = imu1.getMagAccuracy();
+        
+        // Track actual timing between magnetometer readings
+        if (lastMagTime > 0) {
+          magIntervals[magIndex] = currentTime - lastMagTime;
+          magIndex = (magIndex + 1) % TIMING_SAMPLES;
+        }
+        lastMagTime = currentTime;
+        magCount++;
+        break;
+        
+      case SENSOR_REPORTID_ROTATION_VECTOR:
+        quatI = imu1.getQuatI();
+        quatJ = imu1.getQuatJ();
+        quatK = imu1.getQuatK();
+        quatReal = imu1.getQuatReal();
+        quatAccuracy = imu1.getQuatRadianAccuracy();
+        
+        // Convert quaternion to euler angles (in degrees)
+        roll = imu1.getRoll() * 180.0 / PI;
+        pitch = imu1.getPitch() * 180.0 / PI;
+        yaw = imu1.getYaw() * 180.0 / PI;
+        
+        // Track actual timing between rotation vector readings
+        if (lastQuatTime > 0) {
+          quatIntervals[quatIndex] = currentTime - lastQuatTime;
+          quatIndex = (quatIndex + 1) % TIMING_SAMPLES;
+        }
+        lastQuatTime = currentTime;
+        quatCount++;
+        break;
+        
+      case SENSOR_REPORTID_LINEAR_ACCELERATION:
+        linAccelX = imu1.getLinAccelX();
+        linAccelY = imu1.getLinAccelY();
+        linAccelZ = imu1.getLinAccelZ();
+        linAccelAccuracy = imu1.getLinAccelAccuracy();
+        
+        // Track actual timing between linear acceleration readings
+        if (lastLinAccelTime > 0) {
+          linAccelIntervals[linAccelIndex] = currentTime - lastLinAccelTime;
+          linAccelIndex = (linAccelIndex + 1) % TIMING_SAMPLES;
+        }
+        lastLinAccelTime = currentTime;
+        linAccelCount++;
+        break;
+        
+      case SENSOR_REPORTID_GRAVITY:
+        gravityX = imu1.getGravityX();
+        gravityY = imu1.getGravityY();
+        gravityZ = imu1.getGravityZ();
+        
+        // Track actual timing between gravity readings
+        if (lastGravityTime > 0) {
+          gravityIntervals[gravityIndex] = currentTime - lastGravityTime;
+          gravityIndex = (gravityIndex + 1) % TIMING_SAMPLES;
+        }
+        lastGravityTime = currentTime;
+        gravityCount++;
+        break;
+        
+      default:
+        // Serial.print("Unknown sensor report ID: 0x");
+        // Serial.println(sensorType, HEX);
+        break;
     }
   }
   
-  delay(5); // Small delay for stability
+  // Print all sensor data at the specified interval
+  unsigned long currentTime = millis();
+  if (currentTime - lastPrintTime >= PRINT_INTERVAL) {
+    Serial.println("\n=====================================================");
+    Serial.println("BNO080 SENSOR DATA");
+    Serial.println("=====================================================");
+    
+    // Report counts of each sensor type
+    Serial.println("--- SENSOR REPORT COUNTS ---");
+    Serial.print("Accelerometer: "); Serial.println(accelCount);
+    Serial.print("Gyroscope: "); Serial.println(gyroCount);
+    Serial.print("Magnetometer: "); Serial.println(magCount);
+    Serial.print("Rotation Vector: "); Serial.println(quatCount);
+    Serial.print("Linear Acceleration: "); Serial.println(linAccelCount);
+    Serial.print("Gravity: "); Serial.println(gravityCount);
+    Serial.println();
+    
+    // Accelerometer data
+    Serial.println("--- ACCELEROMETER (m/s²) ---");
+    Serial.print("X: "); Serial.print(accelX, 2);
+    Serial.print(" Y: "); Serial.print(accelY, 2);
+    Serial.print(" Z: "); Serial.print(accelZ, 2);
+    Serial.print(" Accuracy: "); Serial.println(accelAccuracy, 2);
+    
+    // Gyroscope data
+    Serial.println("--- GYROSCOPE (rad/s) ---");
+    Serial.print("X: "); Serial.print(gyroX, 2);
+    Serial.print(" Y: "); Serial.print(gyroY, 2);
+    Serial.print(" Z: "); Serial.print(gyroZ, 2);
+    Serial.print(" Accuracy: "); Serial.println(gyroAccuracy, 2);
+    
+    // Magnetometer data
+    Serial.println("--- MAGNETOMETER (μT) ---");
+    Serial.print("X: "); Serial.print(magX, 2);
+    Serial.print(" Y: "); Serial.print(magY, 2);
+    Serial.print(" Z: "); Serial.print(magZ, 2);
+    Serial.print(" Accuracy: "); Serial.println(magAccuracy, 2);
+    
+    // Rotation vector / orientation data
+    Serial.println("--- ROTATION VECTOR (Quaternion) ---");
+    Serial.print("I: "); Serial.print(quatI, 3);
+    Serial.print(" J: "); Serial.print(quatJ, 3);
+    Serial.print(" K: "); Serial.print(quatK, 3);
+    Serial.print(" Real: "); Serial.print(quatReal, 3);
+    Serial.print(" Accuracy: "); Serial.println(quatAccuracy, 3);
+    
+    Serial.println("--- EULER ANGLES (deg) ---");
+    Serial.print("Roll: "); Serial.print(roll, 1);
+    Serial.print(" Pitch: "); Serial.print(pitch, 1);
+    Serial.print(" Yaw: "); Serial.println(yaw, 1);
+    
+    // Linear acceleration data
+    Serial.println("--- LINEAR ACCELERATION (m/s²) ---");
+    Serial.print("X: "); Serial.print(linAccelX, 2);
+    Serial.print(" Y: "); Serial.print(linAccelY, 2);
+    Serial.print(" Z: "); Serial.print(linAccelZ, 2);
+    Serial.print(" Accuracy: "); Serial.println(linAccelAccuracy, 2);
+    
+    // Gravity vector data
+    Serial.println("--- GRAVITY VECTOR (m/s²) ---");
+    Serial.print("X: "); Serial.print(gravityX, 2);
+    Serial.print(" Y: "); Serial.print(gravityY, 2);
+    Serial.print(" Z: "); Serial.println(gravityZ, 2);
+    
+    // Add timing statistics
+    Serial.println("\n--- SENSOR TIMING STATISTICS ---");
+    
+    // Calculate average intervals
+    unsigned long accelSum = 0, gyroSum = 0, magSum = 0;
+    unsigned long quatSum = 0, linAccelSum = 0, gravitySum = 0;
+    int accelValid = 0, gyroValid = 0, magValid = 0;
+    int quatValid = 0, linAccelValid = 0, gravityValid = 0;
+    
+    for (int i = 0; i < TIMING_SAMPLES; i++) {
+      if (accelIntervals[i] > 0) { accelSum += accelIntervals[i]; accelValid++; }
+      if (gyroIntervals[i] > 0) { gyroSum += gyroIntervals[i]; gyroValid++; }
+      if (magIntervals[i] > 0) { magSum += magIntervals[i]; magValid++; }
+      if (quatIntervals[i] > 0) { quatSum += quatIntervals[i]; quatValid++; }
+      if (linAccelIntervals[i] > 0) { linAccelSum += linAccelIntervals[i]; linAccelValid++; }
+      if (gravityIntervals[i] > 0) { gravitySum += gravityIntervals[i]; gravityValid++; }
+    }
+    
+    // Accelerometer timing
+    Serial.print("Accel avg interval: "); 
+    if (accelValid > 0) {
+      float accelAvg = (float)accelSum / accelValid;
+      Serial.print(accelAvg, 1);
+      Serial.print("ms, Rate: ");
+      Serial.print(1000.0 / accelAvg, 1);
+      Serial.print("Hz, Samples: ");
+      Serial.println(accelValid);
+    } else {
+      Serial.println("No data");
+    }
+    
+    // Gyroscope timing
+    Serial.print("Gyro avg interval: "); 
+    if (gyroValid > 0) {
+      float gyroAvg = (float)gyroSum / gyroValid;
+      Serial.print(gyroAvg, 1);
+      Serial.print("ms, Rate: ");
+      Serial.print(1000.0 / gyroAvg, 1);
+      Serial.print("Hz, Samples: ");
+      Serial.println(gyroValid);
+    } else {
+      Serial.println("No data");
+    }
+    
+    // Magnetometer timing
+    Serial.print("Mag avg interval: "); 
+    if (magValid > 0) {
+      float magAvg = (float)magSum / magValid;
+      Serial.print(magAvg, 1);
+      Serial.print("ms, Rate: ");
+      Serial.print(1000.0 / magAvg, 1);
+      Serial.print("Hz, Samples: ");
+      Serial.println(magValid);
+    } else {
+      Serial.println("No data");
+    }
+    
+    // Quaternion/Rotation vector timing
+    Serial.print("Quat avg interval: "); 
+    if (quatValid > 0) {
+      float quatAvg = (float)quatSum / quatValid;
+      Serial.print(quatAvg, 1);
+      Serial.print("ms, Rate: ");
+      Serial.print(1000.0 / quatAvg, 1);
+      Serial.print("Hz, Samples: ");
+      Serial.println(quatValid);
+    } else {
+      Serial.println("No data");
+    }
+    
+    // Linear acceleration timing
+    Serial.print("LinAccel avg interval: "); 
+    if (linAccelValid > 0) {
+      float linAccelAvg = (float)linAccelSum / linAccelValid;
+      Serial.print(linAccelAvg, 1);
+      Serial.print("ms, Rate: ");
+      Serial.print(1000.0 / linAccelAvg, 1);
+      Serial.print("Hz, Samples: ");
+      Serial.println(linAccelValid);
+    } else {
+      Serial.println("No data");
+    }
+    
+    // Gravity vector timing
+    Serial.print("Gravity avg interval: "); 
+    if (gravityValid > 0) {
+      float gravityAvg = (float)gravitySum / gravityValid;
+      Serial.print(gravityAvg, 1);
+      Serial.print("ms, Rate: ");
+      Serial.print(1000.0 / gravityAvg, 1);
+      Serial.print("Hz, Samples: ");
+      Serial.println(gravityValid);
+    } else {
+      Serial.println("No data");
+    }
+    
+    lastPrintTime = currentTime;
+  }
+  
+  // Brief delay to prevent hammering the I2C bus
+  delay(1);
 }
