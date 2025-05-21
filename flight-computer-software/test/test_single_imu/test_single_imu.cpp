@@ -58,7 +58,10 @@ void setup() {
   
   // Initialize I2C
   Wire1.begin();
-  Wire1.setClock(400000); // Try with 400kHz for better performance
+  Wire1.setClock(200000); // Try with 400kHz for better performance
+
+  Wire2.begin();
+  Wire2.setClock(200000); // Try with 400kHz for better performance
   
   // Give the IMU time to boot
   delay(500); // Increased boot time
@@ -66,10 +69,12 @@ void setup() {
   // Initialize IMU with specified address and Wire1
   Serial.println("Initializing IMU...");
   bool status = imu1.begin(0x4A, Wire1, -1);
+  // bool status = imu1.begin(0x4A, Wire2, -1);
   
   if (!status) {
     Serial.println("First address failed. Trying alternate address...");
-    status = imu1.begin(0x4B, Wire1, -1);
+    // status = imu1.begin(0x4B, Wire1, -1);
+    status = 0;
     
     if (!status) {
       Serial.println("ERROR: IMU initialization failed. Check connections.");
@@ -85,45 +90,44 @@ void setup() {
   
   Serial.println("IMU initialized successfully!");
   
-  // Try a soft reset first
+  // Check IMU connection is still good
+  Wire1.beginTransmission(0x4A);
+  byte error = Wire1.endTransmission();
+  Serial.print("IMU connection test: ");
+  Serial.println(error == 0 ? "GOOD" : "FAILED");
+
+  // First, perform a soft reset for clean initialization
   Serial.println("Performing soft reset...");
   imu1.softReset();
-  delay(500);
+  delay(1000); // Give the IMU time to fully reset
   
-  Serial.println("Configuring IMU...");
-  
-  // // Try different update rates for the problematic sensors
-  Serial.print("Enabling accelerometer... ");
-  imu1.enableAccelerometer(50); // Try faster update rate (25ms)
-  Serial.println("DONE");
-  
-  delay(100);
+  Serial.println("Calibrating IMU...");
+  // Set the IMU to use the default calibration settings
+  imu1.calibrateAll();
+  delay(1000); // Give the IMU time to calibrate
+
+  // First enable just the gyroscope to ensure it gets initialized properly
   Serial.print("Enabling gyroscope... ");
-  imu1.enableGyro(50); // Keep original rate for comparison
+  imu1.enableGyro(10); // 20Hz (50ms)
+  // imu1.enableUncalibratedGyro(200); // 20Hz (50ms)
   Serial.println("DONE");
+  delay(300); // Longer delay to ensure gyro is properly configured
   
-  delay(100);
-  Serial.print("Enabling magnetometer... ");
-  imu1.enableMagnetometer(50); // Try faster update rate (25ms)
-  Serial.println("DONE");
+  // imu1.enableGameRotationVector(50);
+  // Now add rotation vector at lower priority but before linear acceleration
+  // Serial.print("Enabling rotation vector... ");
+  // imu1.enableRotationVector(100); // 10Hz (100ms) - Medium priority, reliable data
+  // Serial.println("DONE");
+  // delay(300);
   
-  delay(100);
-  Serial.print("Enabling rotation vector... ");
-  imu1.enableRotationVector(50); // Keep original rate for comparison
-  Serial.println("DONE");
-  
-  delay(100);
-  Serial.print("Enabling linear accelerometer... ");
-  imu1.enableLinearAccelerometer(50); // Try faster update rate (25ms)
-  Serial.println("DONE");
-  
-  delay(100);
-  Serial.print("Enabling gravity... ");
-  imu1.enableGravity(50); // Try faster update rate (25ms)
-  Serial.println("DONE");
+  // Finally add linear acceleration
+  // Serial.print("Enabling linear accelerometer... ");
+  // imu1.enableLinearAccelerometer(200); // 5Hz (200ms) - Lower priority
+  // Serial.println("DONE");
+  // delay(300);
   
   Serial.println("All sensors configured, beginning data stream...");
-  delay(1000); // Longer delay to ensure sensors initialize fully
+  delay(1500); // Allow more time for configuration to take effect
 }
 
 void loop() {

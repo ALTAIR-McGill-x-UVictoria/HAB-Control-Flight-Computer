@@ -9,6 +9,7 @@
 #include "hab_model.h"
 #include "Propulsion.h"
 #include <core_pins.h> // Required for DMAMEM
+#include "utils.h"
 
 // Function declarations
 void stop_all_threads();

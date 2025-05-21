@@ -28,8 +28,10 @@ void Sensors::begin()
 {
   if (!status.imu1 && !status.imu2)
     Wire1.begin();
+    // Wire1.setClock(400000); // Increase I2C data rate to 400kHz
   if (!status.imu3)
     Wire2.begin();
+    // Wire2.setClock(400000); // Increase I2C data rate to 400kHz
   if (!status.imu1)
   status.imu1 = imu1.begin(0x4A, Wire1, -1);
   if (!status.imu2)
@@ -199,7 +201,7 @@ void Sensors::computeRelativeLinearThreadImpl()
     zRelativePosition = zRelativePosition + zRelativeVelocity * dt;
     
     // Wait before next reading
-    threads.delay(interval);
+    threads.delay(interval/2);
   }
 }
 
