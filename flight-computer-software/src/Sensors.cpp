@@ -301,28 +301,53 @@ void Sensors::processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &
 
 void Sensors::imuSensorThreadImpl()
 {
+    // Initialize update times
     lastImu1UpdateTime = lastImu2UpdateTime = lastImu3UpdateTime = millis();
+    
+    // For tracking update intervals (time between measurements)
+    unsigned long currentTime;
+    
+    // State machine for cycling through IMUs
+    static int currentImuState = 0;
     
     while (running)
     {
-        // Only process IMUs that were initialized successfully
-        if (status.imu1) {
-            processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, status.imu1);
+        // Process only one IMU per loop iteration
+        switch(currentImuState) {
+            case 0:
+                if (status.imu1) {
+                    unsigned long prevTime = lastImu1UpdateTime;
+                    processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, status.imu1);
+                    currentTime = millis();
+                    lastIMU1UpdateTime = currentTime - prevTime;
+                }
+                break;
+                
+            case 1:
+                if (status.imu2) {
+                    unsigned long prevTime = lastImu2UpdateTime;
+                    processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, status.imu2);
+                    currentTime = millis();
+                    lastIMU2UpdateTime = currentTime - prevTime;
+                }
+                break;
+                
+            case 2:
+                if (status.imu3) {
+                    unsigned long prevTime = lastImu3UpdateTime;
+                    processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, status.imu3);
+                    currentTime = millis();
+                    lastIMU3UpdateTime = currentTime - prevTime;
+                }
+                break;
         }
         
-        if (status.imu2) {
-            processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, status.imu2);
-        }
+        // Move to next IMU for next iteration
+        currentImuState = (currentImuState + 1) % 3;
         
-        if (status.imu3) {
-            processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, status.imu3);
-        }
-        
-        // Always yield to give other threads a chance
+        // Yield after processing a single IMU
         threads.yield();
-        
-        // Short delay to prevent tight loop hammering the I2C bus
-        threads.delay(1);
+        // threads.delay(1);
     }
 }
 
@@ -475,6 +500,11 @@ void Sensors::start(uint16_t interval)
   // Set reference points
   setRelativePosition(0.0, 0.0, 0.0);
   setRelativeVelocity(0.0, 0.0, 0.0);
+
+  // Start timers
+  lastIMU1UpdateTime = millis();
+  lastIMU2UpdateTime = millis(); 
+  lastIMU3UpdateTime = millis();
 
   // Start each data stream
   Serial.println("Enabling sensor reports...");

@@ -246,6 +246,11 @@ void loop()
         sensor_y_angular_vel = ((sensor_y_angular_vel * M_PI / 180.0f) / 6.28f);
         sensor_z_angular_vel = ((sensor_z_angular_vel * M_PI / 180.0f) / 6.28f);
 
+        // Timers
+        lastIMU1time = sensors.lastIMU1UpdateTime;
+        lastIMU2time = sensors.lastIMU2UpdateTime;
+        lastIMU3time = sensors.lastIMU3UpdateTime;
+
     }
     
     // Update sensor readings and run model at a controlled rate (10Hz is sufficient)
@@ -317,7 +322,7 @@ void printCurrentData(){
     float y_ang_vel_deg = sensor_y_angular_vel * 6.28f * 180.0f / M_PI;
     float z_ang_vel_deg = sensor_z_angular_vel * 6.28f * 180.0f / M_PI;
     
-    // GPS data
+    
     
 
     Serial.println("=== MOTOR CONTROL STATUS ===");
@@ -345,6 +350,9 @@ void printCurrentData(){
                     sensors.status.imu1 ? "OK" : "FAIL",
                     sensors.status.imu2 ? "OK" : "FAIL", 
                     sensors.status.imu3 ? "OK" : "FAIL");
+
+    // Timer comparison
+    Serial.printf("Last sensor poll dt: IMU1=%lums, IMU2=%lums, IMU3=%lums\n", lastIMU1time, lastIMU2time, lastIMU3time);
 
     // Control Output Section
     Serial.println("--- CONTROL OUTPUTS ---");

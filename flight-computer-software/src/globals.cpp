@@ -12,16 +12,24 @@ const int kTensorArenaSize = 8 * 1024;
 // Define the tensor arena in DMAMEM (DMA-accessible memory)
 DMAMEM uint8_t tensor_arena[kTensorArenaSize];
 
+// Timers for debugging
+long lastIMUtime = 0;
+
 // Define the sensor variables
 float sensor_x_accel = 0.0f, sensor_y_accel = 0.0f, sensor_z_accel = 0.0f;
 float sensor_vx = 0.0f, sensor_vy = 0.0f, sensor_vz = 0.0f;
 float sensor_px = 0.0f, sensor_py = 0.0f, sensor_pz = 0.0f;
 float sensor_x_angular_vel = 0.0f, sensor_y_angular_vel = 0.0f, sensor_z_angular_vel = 0.0f;
 float sensor_yaw = 0.0f, sensor_pitch = 0.0f, sensor_roll = 0.0f;
+
+
 float gps_lon = 0.0f, gps_lat = 0.0f, gps_alt = 0.0f;
 float gps_vx = 0.0f, gps_vy = 0.0f, gps_vz = 0.0f;
 
 float baro_altitude = 0.0f, baro_pressure = 0.0f, baro_temp = 0.0f;
+
+// Timers
+unsigned long lastIMU1time = 0, lastIMU2time = 0, lastIMU3time = 0;
 
 // Define the model state variables
 float prevAction0 = 0.0f;

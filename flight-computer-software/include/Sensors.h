@@ -39,7 +39,7 @@ library to provide the following data :
 #define TEMPERATURE_TIMEOUT 1000
 #define IMU_TIMEOUT 1000
 
-#define FILTER_FACTOR 0.2f  // Adjust between 0.01 (very smooth) and 0.5 (responsive)
+#define FILTER_FACTOR 0.5f  // Adjust between 0.01 (very smooth) and 0.5 (responsive)
 
 // Set to 1 to enable temporal filtering, 0 to disable
 #define ENABLE_TEMPORAL_FILTER 0
@@ -53,9 +53,9 @@ library to provide the following data :
 #define SELECTED_FILTER_ALGORITHM FILTER_ALGORITHM_ADAPTIVE
 
 // Smoothing strength parameters - adjust as needed
-#define FILTER_ALPHA_SIMPLE 0.05f      // Simple filter alpha (smaller = more smoothing)
-#define FILTER_ALPHA1_DOUBLE 0.2f      // First stage alpha for double exp
-#define FILTER_ALPHA2_DOUBLE 0.1f     // Second stage alpha for double exp
+#define FILTER_ALPHA_SIMPLE 0.3f      // Simple filter alpha (smaller = more smoothing)
+#define FILTER_ALPHA1_DOUBLE 0.4f      // First stage alpha for double exp
+#define FILTER_ALPHA2_DOUBLE 0.25f     // Second stage alpha for double exp
 
 struct SensorStatus
 {
@@ -108,6 +108,11 @@ public:
 
   // Add GPS data to public section
   GPSData gpsData;
+
+  // Timers
+  unsigned long lastIMU1UpdateTime;
+  unsigned long lastIMU2UpdateTime;
+  unsigned long lastIMU3UpdateTime;
   
   // Initializes the sensors
   void begin();

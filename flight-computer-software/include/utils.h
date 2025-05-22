@@ -46,6 +46,9 @@ extern float sensor_yaw, sensor_pitch, sensor_roll;
 extern float gps_lon, gps_lat, gps_alt;
 extern float gps_vx, gps_vy, gps_vz;
 
+// Timers
+extern unsigned long lastIMU1time, lastIMU2time, lastIMU3time;
+
 // Altimeter data
 extern float baro_altitude, baro_pressure, baro_temp;
 
