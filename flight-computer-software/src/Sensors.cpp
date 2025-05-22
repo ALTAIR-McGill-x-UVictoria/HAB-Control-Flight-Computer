@@ -24,6 +24,8 @@ float Sensors::filtered_roll = 0.0f;
 float Sensors::filtered_pitch = 0.0f;
 float Sensors::filtered_yaw = 0.0f;
 
+// std::map<std::string, float> Sensors::lastFusedValues; // Key is a unique ID for each measurement type
+
 void Sensors::begin()
 {
   // Always initialize I2C buses
@@ -276,13 +278,17 @@ void Sensors::temperatureSensorThreadImpl()
 
 void Sensors::processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &lastUpdateTime, bool &statusFlag)
 {
-  if (statusFlag && fetchDataFromIMU(&imu, &data))
-  {
-    lastUpdateTime = millis();
-    statusFlag = true;
+  if (statusFlag) {
+    i2c_mutex.lock();
+    bool success = fetchDataFromIMU(&imu, &data);
+    i2c_mutex.unlock();
+    
+    if (success) {
+      lastUpdateTime = millis();
+      statusFlag = true;
+    }
   }
-  else if (millis() - lastUpdateTime > IMU_TIMEOUT)
-  {
+  else if (millis() - lastUpdateTime > IMU_TIMEOUT) {
     // Mark data as invalid
     data.linearAccuracy = -1;
     data.gyroAccuracy = -1;
@@ -295,14 +301,29 @@ void Sensors::processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &
 
 void Sensors::imuSensorThreadImpl()
 {
-  lastImu1UpdateTime = lastImu2UpdateTime = lastImu3UpdateTime = millis();
-  while (running)
-  {
-    processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, status.imu1);
-    processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, status.imu2);
-    processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, status.imu3);
-    threads.yield();
-  }
+    lastImu1UpdateTime = lastImu2UpdateTime = lastImu3UpdateTime = millis();
+    
+    while (running)
+    {
+        // Only process IMUs that were initialized successfully
+        if (status.imu1) {
+            processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, status.imu1);
+        }
+        
+        if (status.imu2) {
+            processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, status.imu2);
+        }
+        
+        if (status.imu3) {
+            processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, status.imu3);
+        }
+        
+        // Always yield to give other threads a chance
+        threads.yield();
+        
+        // Short delay to prevent tight loop hammering the I2C bus
+        threads.delay(1);
+    }
 }
 
 void Sensors::computeRelativeLinearThreadImpl()
@@ -482,9 +503,11 @@ void Sensors::start(uint16_t interval)
 
   // Start sensor threads
   Serial.println("Starting sensor threads...");
+
+    // Give all I2C-using threads the same priority to prevent inversion
+  imuSensorThreadId = threads.addThread(imuSensorThreadWrapper, this);
   altimeterSensorThreadId = threads.addThread(altimeterSensorThreadWrapper, this);
   temperatureSensorThreadId = threads.addThread(temperatureSensorThreadWrapper, this);
-  imuSensorThreadId = threads.addThread(imuSensorThreadWrapper, this);
   computeRelativeLinearThreadId = threads.addThread(computeRelativeLinearThreadWrapper, this);
   
   Serial.println("Sensor system fully started");
@@ -567,9 +590,15 @@ void Sensors::getFusedLinearAcceleration(float &xLinearAcceleration, float &yLin
   
   // Only call sensorFusion if we have valid sensors
   if (anySensorValid) {
-    xLinearAcceleration = sensorFusion(axValues, accuracyValues);
-    yLinearAcceleration = sensorFusion(ayValues, accuracyValues);
-    zLinearAcceleration = sensorFusion(azValues, accuracyValues);
+    // Get raw fusion results
+    float rawX = sensorFusion(axValues, accuracyValues);
+    float rawY = sensorFusion(ayValues, accuracyValues);
+    float rawZ = sensorFusion(azValues, accuracyValues);
+    
+    // Apply temporal filtering with appropriate max change rates
+    xLinearAcceleration = applyTemporalFilter("accel_x", rawX, 20.0f); // Allow up to 20 m/s² change per sec
+    yLinearAcceleration = applyTemporalFilter("accel_y", rawY, 20.0f);
+    zLinearAcceleration = applyTemporalFilter("accel_z", rawZ, 20.0f);
   }
 }
 
@@ -623,9 +652,15 @@ void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVe
   
   // Only call sensorFusion if we have valid sensors
   if (anySensorValid) {
-    xAngularVelocity = sensorFusion(gxValues, accuracyValues);
-    yAngularVelocity = sensorFusion(gyValues, accuracyValues);
-    zAngularVelocity = sensorFusion(gzValues, accuracyValues);
+    // Get raw fusion results
+    float rawX = sensorFusion(gxValues, accuracyValues);
+    float rawY = sensorFusion(gyValues, accuracyValues);
+    float rawZ = sensorFusion(gzValues, accuracyValues);
+    
+    // Apply temporal filtering with appropriate max change rates (degrees/sec²)
+    xAngularVelocity = applyTemporalFilter("gyro_x", rawX, 180.0f);
+    yAngularVelocity = applyTemporalFilter("gyro_y", rawY, 180.0f);
+    zAngularVelocity = applyTemporalFilter("gyro_z", rawZ, 180.0f);
   }
 }
 
@@ -683,9 +718,17 @@ void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation
   
   // Only call sensorFusion if we have valid sensors
   if (anySensorValid) {
-    yawOrientation = sensorFusion(yawValues, accuracyValues, orientationAccuracyValues);
-    pitchOrientation = sensorFusion(pitchValues, accuracyValues, orientationAccuracyValues);
-    rollOrientation = sensorFusion(rollValues, accuracyValues, orientationAccuracyValues);
+    // Get raw fusion results
+    float rawYaw = fuseYaw(yawValues, accuracyValues, orientationAccuracyValues);
+    float rawPitch = sensorFusion(pitchValues, accuracyValues, orientationAccuracyValues);
+    float rawRoll = sensorFusion(rollValues, accuracyValues, orientationAccuracyValues);
+    
+    // Apply angular filtering to handle wrapping correctly
+    yawOrientation = applyAngularFilter("yaw", rawYaw, 120.0f);
+    
+    // Pitch and roll don't wrap in the same way, use standard filter
+    pitchOrientation = applyTemporalFilter("pitch", rawPitch, 60.0f);
+    rollOrientation = applyTemporalFilter("roll", rawRoll, 60.0f);
   }
 }
 
@@ -744,10 +787,18 @@ void Sensors::getFusedQuaternion(float &quatI, float &quatJ, float &quatK, float
   
   // Only call sensorFusion if we have valid sensors
   if (anySensorValid) {
-    quatI = sensorFusion(iValues, accuracyValues);
-    quatJ = sensorFusion(jValues, accuracyValues);
-    quatK = sensorFusion(kValues, accuracyValues);
-    quatReal = sensorFusion(realValues, accuracyValues);
+    // Get raw fusion results
+    float rawI = sensorFusion(iValues, accuracyValues);
+    float rawJ = sensorFusion(jValues, accuracyValues);
+    float rawK = sensorFusion(kValues, accuracyValues);
+    float rawReal = sensorFusion(realValues, accuracyValues);
+    
+    // Apply temporal filtering with appropriate max change rates
+    // Quaternions change more slowly than Euler angles
+    quatI = applyTemporalFilter("quat_i", rawI, 0.5f);
+    quatJ = applyTemporalFilter("quat_j", rawJ, 0.5f);
+    quatK = applyTemporalFilter("quat_k", rawK, 0.5f);
+    quatReal = applyTemporalFilter("quat_real", rawReal, 0.5f);
     
     // Normalize the quaternion
     float norm = sqrt(quatI*quatI + quatJ*quatJ + quatK*quatK + quatReal*quatReal);
@@ -878,34 +929,75 @@ void Sensors::setRelativePosition(float px, float py, float pz)
 // use bool accuracyDegrees to determine type of accuracy (linear or orientation)
 float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy)
 {
-  // All values passed to this function are now pre-filtered for valid IMUs
+  if (values.empty()) return 0.0f;
+  if (values.size() == 1) return values[0];
   
-  if (values.size() == 3)
-  {
-    std::sort(values.begin(), values.end()); // if there are 3 values, return the median value
-    return values[1];                        // get middle value
-  }
-  else if (values.size() == 2)
-  {
-    // If only 2 are working, return the value with best accuracy
-    if (orientationAccuracy.empty())
-    {
-      return accuracy[0] > accuracy[1] ? values[0] : values[1]; // For linear accuracy (0-3), higher is better
-    }
-    else
-    {
-      return orientationAccuracy[0] < orientationAccuracy[1] ? values[0] : values[1]; // For degrees, lower is better
+  // Special case for quaternion components where values may be near zero
+  bool isNearZeroData = true;
+  for (float val : values) {
+    if (fabs(val) > 0.01f) {
+      isNearZeroData = false;
+      break;
     }
   }
-  else if (values.size() == 1)
-  {
-    return values[0]; // If only 1 sensor is working, return that value
+  
+  // For very small values (like quat components), use median to avoid division issues
+  if (isNearZeroData) {
+    std::vector<float> sortedValues = values;
+    std::sort(sortedValues.begin(), sortedValues.end());
+    return sortedValues[sortedValues.size() / 2];
   }
-  else
-  {
-    // No sensors are working
-    return 0.0;
+  
+  // Check for outliers when we have 3 sensors
+  if (values.size() == 3) {
+    // Find maximum difference between any pair
+    float maxDiff = 0.0f;
+    int outlierIdx = -1;
+    
+    for (int i = 0; i < 3; i++) {
+      for (int j = i+1; j < 3; j++) {
+        float diff = fabs(values[i] - values[j]);
+        if (diff > maxDiff) {
+          maxDiff = diff;
+          
+          // The point furthest from the cluster is likely the outlier
+          float avg = (values[0] + values[1] + values[2]) / 3.0f;
+          outlierIdx = (fabs(values[i] - avg) > fabs(values[j] - avg)) ? i : j;
+        }
+      }
+    }
+    
+    // If we have a significant outlier, remove it
+    if (maxDiff > 10.0f) { // Threshold for what constitutes an outlier
+      values.erase(values.begin() + outlierIdx);
+      if (!orientationAccuracy.empty()) orientationAccuracy.erase(orientationAccuracy.begin() + outlierIdx);
+      accuracy.erase(accuracy.begin() + outlierIdx);
+    }
   }
+  
+  // Weighted average based on accuracy
+  float sum = 0.0f;
+  float weightSum = 0.0f;
+  
+  for (size_t i = 0; i < values.size(); i++) {
+    // Calculate weight based on accuracy
+    float weight;
+    if (!orientationAccuracy.empty()) {
+      // For orientation accuracy (lower is better)
+      weight = 1.0f / (orientationAccuracy[i] + 0.1f); // Add small value to avoid division by zero
+    } else {
+      // For regular accuracy (higher is better)
+      weight = static_cast<float>(accuracy[i]) + 0.1f; // Add small value for acc=0 case
+    }
+    
+    sum += values[i] * weight;
+    weightSum += weight;
+  }
+  
+  // Avoid division by zero
+  if (weightSum < 0.001f) return values[0];
+  
+  return sum / weightSum;
 }
 
 void Sensors::calibrateAllIMUs(){
@@ -1203,4 +1295,195 @@ void Sensors::calculateGPSVelocityComponents() {
   // gpsData.vx = gpsData.speed * cos(gpsData.course * PI/180.0);
   // gpsData.vy = gpsData.speed * sin(gpsData.course * PI/180.0);
   // gpsData.vz would come from change in altitude
+}
+
+float Sensors::applyTemporalFilter(const std::string& sensorKey, float newValue, float maxChangeRate) {
+#if ENABLE_TEMPORAL_FILTER
+  auto it = lastFusedValues.find(sensorKey);
+  
+  // First measurement handling - same for all algorithms
+  if (it == lastFusedValues.end()) {
+    // First measurement for this sensor
+    lastFusedValues[sensorKey] = newValue;
+    return newValue;
+  }
+  
+  float lastValue = it->second;
+  float result = newValue; // Default to new value
+
+  // Common rate limiting for all algorithms
+  float maxChange = maxChangeRate * (interval / 1000.0f); // Scale by time step
+  
+  // Apply rate limiting - common to all algorithms
+  if (fabs(newValue - lastValue) > maxChange) {
+    if (newValue > lastValue)
+      newValue = lastValue + maxChange;
+    else
+      newValue = lastValue - maxChange;
+  }
+  
+#if SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_SIMPLE
+  // ALGORITHM 1: Simple exponential smoothing
+  result = FILTER_ALPHA_SIMPLE * newValue + (1.0f - FILTER_ALPHA_SIMPLE) * lastValue;
+
+#elif SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_ADAPTIVE
+  // ALGORITHM 2: Adaptive smoothing based on change magnitude
+  // Calculate normalized change ratio
+  float changeRatio = fabs(newValue - lastValue) / (maxChange > 0.0001f ? maxChange : 0.0001f);
+  changeRatio = min(1.0f, changeRatio);
+  
+  // Calculate adaptive alpha - smaller for small changes (more smoothing)
+  // and larger for big changes (less smoothing)
+  float adaptiveAlpha = 0.05f + 0.25f * changeRatio;
+  
+  // Apply exponential smoothing with adaptive alpha
+  result = adaptiveAlpha * newValue + (1.0f - adaptiveAlpha) * lastValue;
+
+#elif SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_DOUBLE_EXP
+  // ALGORITHM 3: Double exponential smoothing (two-stage)
+  static std::map<std::string, float> intermediateValues;
+  
+  auto intermediate_it = intermediateValues.find(sensorKey);
+  float intermValue = (intermediate_it != intermediateValues.end()) ? 
+                      intermediate_it->second : newValue;
+  
+  // Two-stage filtering for stronger smoothing
+  // First filter stage
+  intermValue = FILTER_ALPHA1_DOUBLE * newValue + (1.0f - FILTER_ALPHA1_DOUBLE) * intermValue;
+  
+  // Second filter stage
+  result = FILTER_ALPHA2_DOUBLE * intermValue + (1.0f - FILTER_ALPHA2_DOUBLE) * lastValue;
+  
+  // Update intermediate value
+  intermediateValues[sensorKey] = intermValue;
+#endif
+  
+  // Update stored value for next time
+  lastFusedValues[sensorKey] = result;
+  return result;
+  
+#else
+  // When filtering is disabled, just pass through the raw value
+  return newValue;
+#endif
+}
+
+float Sensors::fuseYaw(std::vector<float> yawValues, std::vector<byte> accuracy, std::vector<float> orientationAccuracy) {
+  // Convert all yaw values to a consistent range
+  for (size_t i = 0; i < yawValues.size(); i++) {
+    // Normalize to 0-360 range
+    while (yawValues[i] < 0) yawValues[i] += 360.0f;
+    while (yawValues[i] >= 360.0f) yawValues[i] -= 360.0f;
+  }
+  
+  // Special case for sensors reporting values across the 0/360 boundary
+  // For example, sensor 1 reporting 358° and sensor 2 reporting 2°
+  if (yawValues.size() >= 2) {
+    bool needsUnwrapping = false;
+    
+    for (size_t i = 0; i < yawValues.size() - 1; i++) {
+      for (size_t j = i + 1; j < yawValues.size(); j++) {
+        float diff = fabs(yawValues[i] - yawValues[j]);
+        if (diff > 180.0f) {
+          needsUnwrapping = true;
+          break;
+        }
+      }
+    }
+    
+    if (needsUnwrapping) {
+      // Unwrap by adding 360° to small values
+      for (size_t i = 0; i < yawValues.size(); i++) {
+        if (yawValues[i] < 90.0f)  // If close to 0
+          yawValues[i] += 360.0f;
+      }
+      
+      // Now fuse with regular method
+      float result = sensorFusion(yawValues, accuracy, orientationAccuracy);
+      
+      // Re-wrap to 0-360
+      while (result >= 360.0f) result -= 360.0f;
+      return result;
+    }
+  }
+  
+  // Standard fusion for non-boundary cases
+  return sensorFusion(yawValues, accuracy, orientationAccuracy);
+}
+
+// Add this at the end
+
+// Specialized filter for angular values (handles 0-360° wrapping)
+float Sensors::applyAngularFilter(const std::string& sensorKey, float newValue, float maxChangeRate) {
+#if ENABLE_TEMPORAL_FILTER
+  auto it = lastFusedValues.find(sensorKey);
+  
+  if (it == lastFusedValues.end()) {
+    lastFusedValues[sensorKey] = newValue;
+    return newValue;
+  }
+  
+  float lastValue = it->second;
+  
+  // Handle angle wrapping (e.g., 359° -> 1° is a 2° change, not 358°)
+  float diff = newValue - lastValue;
+  if (diff > 180.0f) diff -= 360.0f;
+  if (diff < -180.0f) diff += 360.0f;
+  
+  float maxChange = maxChangeRate * (interval / 1000.0f);
+  
+  // Apply rate limiting
+  if (fabs(diff) > maxChange) {
+    if (diff > 0)
+      newValue = lastValue + maxChange;
+    else
+      newValue = lastValue - maxChange;
+  }
+  
+  float result = 0.0f;
+  
+#if SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_SIMPLE
+  // Simple smoothing for angles
+  result = lastValue + FILTER_ALPHA_SIMPLE * diff;
+  
+#elif SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_ADAPTIVE
+  // Adaptive smoothing for angles
+  float changeRatio = fabs(diff) / (maxChange > 0.0001f ? maxChange : 0.0001f);
+  changeRatio = min(1.0f, changeRatio);
+  float adaptiveAlpha = 0.05f + 0.25f * changeRatio;
+  result = lastValue + adaptiveAlpha * diff;
+  
+#elif SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_DOUBLE_EXP
+  // Double exponential for angles (using intermediate value)
+  static std::map<std::string, float> intermediateAngles;
+  
+  auto interm_it = intermediateAngles.find(sensorKey);
+  float intermValue = (interm_it != intermediateAngles.end()) ? 
+                     interm_it->second : lastValue;
+  
+  // First stage: adjust intermediate value
+  intermValue = intermValue + FILTER_ALPHA1_DOUBLE * diff;
+  
+  // Second stage: calculate result using intermediate value
+  float diffInterm = intermValue - lastValue;
+  if (diffInterm > 180.0f) diffInterm -= 360.0f;
+  if (diffInterm < -180.0f) diffInterm += 360.0f;
+  
+  result = lastValue + FILTER_ALPHA2_DOUBLE * diffInterm;
+  
+  // Store intermediate value
+  intermediateAngles[sensorKey] = intermValue;
+#endif
+  
+  // Normalize to 0-360 range
+  while (result >= 360.0f) result -= 360.0f;
+  while (result < 0.0f) result += 360.0f;
+  
+  // Update stored value
+  lastFusedValues[sensorKey] = result;
+  return result;
+  
+#else
+  return newValue;
+#endif
 }

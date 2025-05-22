@@ -26,6 +26,8 @@ library to provide the following data :
 #include <MS5607.h>
 #include <SparkFun_BNO080_Arduino_Library.h>
 #include <vector>
+#include <string>
+#include <map>
 
 // The value of the Rref resistor: 430.0 for PT100
 #define RREF 430.0
@@ -33,11 +35,27 @@ library to provide the following data :
 #define RNOMINAL 100.0
 
 // Timeout constants for sensor data (in milliseconds)
-#define ALTIMETER_TIMEOUT 500
-#define TEMPERATURE_TIMEOUT 500
-#define IMU_TIMEOUT 500
+#define ALTIMETER_TIMEOUT 1000
+#define TEMPERATURE_TIMEOUT 1000
+#define IMU_TIMEOUT 1000
 
-#define FILTER_FACTOR 0.1f  // Adjust between 0.01 (very smooth) and 0.5 (responsive)
+#define FILTER_FACTOR 0.2f  // Adjust between 0.01 (very smooth) and 0.5 (responsive)
+
+// Set to 1 to enable temporal filtering, 0 to disable
+#define ENABLE_TEMPORAL_FILTER 0
+
+// Filter algorithm selection (choose only one)
+#define FILTER_ALGORITHM_SIMPLE 1      // Simple rate-limiting + exponential smoothing
+#define FILTER_ALGORITHM_ADAPTIVE 2    // Adaptive smoothing based on change magnitude
+#define FILTER_ALGORITHM_DOUBLE_EXP 3  // Two-stage double exponential smoothing
+
+// Select which algorithm to use (1, 2, or 3)
+#define SELECTED_FILTER_ALGORITHM FILTER_ALGORITHM_ADAPTIVE
+
+// Smoothing strength parameters - adjust as needed
+#define FILTER_ALPHA_SIMPLE 0.05f      // Simple filter alpha (smaller = more smoothing)
+#define FILTER_ALPHA1_DOUBLE 0.2f      // First stage alpha for double exp
+#define FILTER_ALPHA2_DOUBLE 0.1f     // Second stage alpha for double exp
 
 struct SensorStatus
 {
@@ -171,6 +189,9 @@ public:
   void updateVelocityWithGPS();
   
 private:
+
+  Threads::Mutex i2c_mutex;
+
   // The temperature probe sensor
   Adafruit_MAX31865 temperatureProbe = Adafruit_MAX31865(10, 11, 12, 13); // software SPI: CS, DI, DO, CLK
 
@@ -197,6 +218,8 @@ private:
   unsigned long lastRelativeLinearUpdateTime;
 
   bool sensorsInitialized = false;
+
+  std::map<std::string, float> lastFusedValues; // Key is a unique ID for each measurement type
 
   // Enables reports for the IMU
   // params: BNO080* imu, uint16_t interval
@@ -225,8 +248,14 @@ private:
   // returns: float
   float sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy = {});
 
+  float fuseYaw(std::vector<float> yawValues, std::vector<byte> accuracy, std::vector<float> orientationAccuracy);
+
   // Helper method to process a single IMU
   void processIMUSensor(BNO080 &imu, SensorDataIMU &data, unsigned long &lastUpdateTime, bool &statusFlag);
+
+  float applyTemporalFilter(const std::string& sensorKey, float newValue, float maxChangeRate);
+
+  float applyAngularFilter(const std::string& sensorKey, float newValue, float maxChangeRate);
 
   // Transforms a vector from sensor frame to world frame using a quaternion
   // params: float x, float y, float z, float quatI, float quatJ, float quatK, float quatReal, float &xWorld, float &yWorld, float &zWorld
@@ -266,6 +295,8 @@ private:
   // For future GPS integration
   void calculateGPSVelocityComponents();
   void performKalmanFilter();  // Future implementation for sensor fusion
+
+  
 };
 
 #endif // SENSORS_H

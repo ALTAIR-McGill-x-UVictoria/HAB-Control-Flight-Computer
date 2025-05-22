@@ -38,6 +38,7 @@ DMAMEM static uint8_t model_thread_stack[12288]; // Larger for the model thread 
 // Define the model state variables
 static unsigned long debugPrintTime = 0;
 static unsigned long lastModelRunTime = 0;
+static unsigned long dataAcquireTime = 0;
 static float leftThrottle = 0.0f;
 static float rightThrottle = 0.0f;
 float action0 = 0.0f;
@@ -205,11 +206,10 @@ void setup()
 // Modify the loop function to ensure proper mutex handling and thread safety
 void loop()
 {
-    
-    // Update sensor readings and run model at a controlled rate (10Hz is sufficient)
-    if (millis() - lastModelRunTime >= 100) {
-        lastModelRunTime = millis();
-        
+
+    if (millis() - dataAcquireTime >= 100) {
+        dataAcquireTime = millis();
+
         // Get sensor readings
         sensors.getFusedWorldLinearAcceleration(sensor_x_accel, sensor_y_accel, sensor_z_accel);
         sensors.getRelativeVelocity(sensor_vx, sensor_vy, sensor_vz);
@@ -229,10 +229,6 @@ void loop()
         baro_altitude = sensors.getAltitude();
         baro_pressure = sensors.getPressure();
 
-        // Sanitize inputs (keep your existing code)
-        if (isnan(sensor_x_accel) || isinf(sensor_x_accel)) sensor_x_accel = 0;
-        // ...other sanity checks...
-        
         // Normalize data
         sensor_x_accel = (sensor_x_accel / 10.0f);
         sensor_y_accel = (sensor_y_accel / 10.0f);
@@ -246,29 +242,21 @@ void loop()
         sensor_pitch = (sensor_pitch * M_PI / 180.0f) / 6.28f;
         sensor_yaw = (sensor_yaw * M_PI / 180.0f) / 6.28f;
 
-        // // Add low-pass filtering using the existing FILTER_FACTOR from Sensors.h
-        // static float filtered_roll_local = sensor_roll;
-        // static float filtered_pitch_local = sensor_pitch;
-        // static float filtered_yaw_local = sensor_yaw;
-
-        // // Apply low-pass filter (slowly blend new readings with previous filtered values)
-        // filtered_roll_local = filtered_roll_local * (1.0f - FILTER_FACTOR) + sensor_roll * FILTER_FACTOR;
-        // filtered_pitch_local = filtered_pitch_local * (1.0f - FILTER_FACTOR) + sensor_pitch * FILTER_FACTOR;
-        // filtered_yaw_local = filtered_yaw_local * (1.0f - FILTER_FACTOR) + sensor_yaw * FILTER_FACTOR;
-
-        // // Use the filtered values for the model inputs
-        // modelSetInput(filtered_roll_local, IDX_ROLL);
-        // modelSetInput(filtered_pitch_local, IDX_PITCH);
-        // modelSetInput(filtered_yaw_local, IDX_YAW);
-
-        // // Store the filtered values back
-        // sensor_roll = filtered_roll_local;
-        // sensor_pitch = filtered_pitch_local;
-        // sensor_yaw = filtered_yaw_local;
-        
         sensor_x_angular_vel = ((sensor_x_angular_vel * M_PI / 180.0f) / 6.28f);
         sensor_y_angular_vel = ((sensor_y_angular_vel * M_PI / 180.0f) / 6.28f);
         sensor_z_angular_vel = ((sensor_z_angular_vel * M_PI / 180.0f) / 6.28f);
+
+    }
+    
+    // Update sensor readings and run model at a controlled rate (10Hz is sufficient)
+    if (millis() - lastModelRunTime >= 1000) {
+        lastModelRunTime = millis();
+
+
+        // Sanitize inputs (keep your existing code)
+        if (isnan(sensor_x_accel) || isinf(sensor_x_accel)) sensor_x_accel = 0;
+        // ...other sanity checks...
+
         
         // Set model inputs
         modelSetInput(sensor_x_accel, IDX_X_ACCEL);
