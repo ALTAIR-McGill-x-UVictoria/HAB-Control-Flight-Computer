@@ -26,22 +26,149 @@ float Sensors::filtered_yaw = 0.0f;
 
 void Sensors::begin()
 {
-  if (!status.imu1 && !status.imu2)
-    Wire1.begin();
-    // Wire1.setClock(400000); // Increase I2C data rate to 400kHz
-  if (!status.imu3)
-    Wire2.begin();
-    // Wire2.setClock(400000); // Increase I2C data rate to 400kHz
-  if (!status.imu1)
-  status.imu1 = imu1.begin(0x4A, Wire1, -1);
-  if (!status.imu2)
-  status.imu2 = imu2.begin(0x4B, Wire1, -1);
-  if (!status.imu3)
-  status.imu3 = imu3.begin(0x4A, Wire2, -1);
-  if (!status.pressure)
-  status.pressure = altimeter.begin();
-  if (!status.temperature)
+  // Always initialize I2C buses
+  Wire1.begin();
+  Wire2.begin();
+  
+  // Set higher clock speed for I2C
+  Wire1.setClock(400000);
+  Wire2.setClock(400000);
+  
+  // Wait for buses to stabilize
+  delay(100);
+  
+  Serial.println("Initializing sensors...");
+  
+  // First properly initialize temperature and pressure sensors
   status.temperature = temperatureProbe.begin(MAX31865_3WIRE);
+  if (status.temperature) {
+    Serial.println("Temperature sensor initialized successfully");
+  } else {
+    Serial.println("Failed to initialize temperature sensor");
+  }
+  
+  status.pressure = altimeter.begin();
+  if (status.pressure) {
+    Serial.println("Pressure sensor initialized successfully");
+  } else {
+    Serial.println("Failed to initialize pressure sensor");
+  }
+  
+  // Then initialize IMUs with retry logic
+  Serial.println("Initializing IMU1...");
+  status.imu1 = initializeSingleIMU(imu1, Wire1, 0x4A);
+  
+  Serial.println("Initializing IMU2...");
+  status.imu2 = initializeSingleIMU(imu2, Wire1, 0x4B);
+  
+  Serial.println("Initializing IMU3...");
+  status.imu3 = initializeSingleIMU(imu3, Wire2, 0x4A);
+  
+  // Summary of initialization results
+  Serial.println("\nSensor initialization complete:");
+  Serial.print("- Temperature sensor: "); Serial.println(status.temperature ? "OK" : "FAILED");
+  Serial.print("- Pressure sensor: "); Serial.println(status.pressure ? "OK" : "FAILED");
+  Serial.print("- IMU1: "); Serial.println(status.imu1 ? "OK" : "FAILED");
+  Serial.print("- IMU2: "); Serial.println(status.imu2 ? "OK" : "FAILED");
+  Serial.print("- IMU3: "); Serial.println(status.imu3 ? "OK" : "FAILED");
+  
+  // Initialize GPS data with default values
+  gpsData.latitude = 0.0f;
+  gpsData.longitude = 0.0f;
+  gpsData.altitude = 0.0f;
+  gpsData.speed = 0.0f;
+  gpsData.course = 0.0f;
+  gpsData.vx = 0.0f;
+  gpsData.vy = 0.0f;
+  gpsData.vz = 0.0f;
+  gpsData.satellites = 0;
+  gpsData.fixQuality = 0;
+  gpsData.timestamp = 0;
+  gpsData.valid = false;
+  
+  sensorsInitialized = true;
+}
+
+bool Sensors::initializeSingleIMU(BNO080 &imu, TwoWire &wire, uint8_t address, int maxRetries) 
+{
+  for (int attempt = 1; attempt <= maxRetries; attempt++) {
+    Serial.printf("  Attempt %d of %d...", attempt, maxRetries);
+    
+    // Try to initialize the IMU
+    if (imu.begin(address, wire, -1)) {
+      Serial.println("SUCCESS");
+      
+      // Configure the IMU after successful initialization
+      delay(50);  // Brief stabilization delay
+      
+      // Enable basic reports to check communication
+      imu.enableRotationVector(50);
+      
+      // Wait for data to verify connection
+      unsigned long startTime = millis();
+      while (millis() - startTime < 300) {  // Short timeout
+        if (imu.dataAvailable()) {
+          // Read a value to confirm communication works
+          imu.getQuatI();
+          Serial.println("  Communication verified");
+          return true;
+        }
+        delay(10);
+      }
+      
+      Serial.println("  Communication check failed, retrying...");
+    } else {
+      Serial.println("FAILED");
+    }
+    
+    // Reset connection before retry
+    wire.end();
+    delay(100);
+    wire.begin();
+    wire.setClock(400000);
+    delay(100);
+  }
+  
+  Serial.println("  All attempts failed");
+  return false;
+}
+
+bool Sensors::areSensorsReady() {
+  if (!sensorsInitialized) return false;
+  
+  // Required sensors - check that at least two IMUs are working
+  // (we can function with two of three IMUs)
+  int workingIMUs = 0;
+  if (status.imu1) workingIMUs++;
+  if (status.imu2) workingIMUs++;
+  if (status.imu3) workingIMUs++;
+  
+  // Minimum 2 IMUs required for reliable operation
+  return (workingIMUs >= 2) && status.pressure;
+}
+
+bool Sensors::resetIMU(int imuNumber) {
+  bool result = false;
+  
+  switch(imuNumber) {
+    case 1:
+      Serial.println("Resetting IMU1...");
+      status.imu1 = initializeSingleIMU(imu1, Wire1, 0x4A);
+      result = status.imu1;
+      break;
+    case 2:
+      Serial.println("Resetting IMU2...");
+      status.imu2 = initializeSingleIMU(imu2, Wire1, 0x4B);
+      result = status.imu2;
+      break;
+    case 3:
+      Serial.println("Resetting IMU3...");
+      status.imu3 = initializeSingleIMU(imu3, Wire2, 0x4A);
+      result = status.imu3;
+      break;
+  }
+  
+  return result;
 }
 
 void Sensors::enableReportsForIMU(BNO080 *imu, uint16_t interval)
@@ -180,50 +307,187 @@ void Sensors::imuSensorThreadImpl()
 
 void Sensors::computeRelativeLinearThreadImpl()
 {
+  // State vector: [position, velocity, acceleration, bias]
+  float state[9] = {0}; // [px, py, pz, vx, vy, vz, ax_bias, ay_bias, az_bias]
+  float P[9][9] = {0};  // Covariance matrix
+  
+  // Initialize covariance matrix with uncertainty
+  for (int i = 0; i < 9; i++) P[i][i] = 1.0;
+  
+  // For GPS-based corrections
+  unsigned long lastGpsUpdateTime = 0;
+  const unsigned long GPS_UPDATE_INTERVAL = 1000; // Check GPS every 1 second
+  
   while (running)
   {
-    // Only get world frame accelerations
-    float axWorld = 0.0, ayWorld = 0.0, azWorld = 0.0;
+    // Get world frame accelerations
+    float axWorld = 0.0f, ayWorld = 0.0f, azWorld = 0.0f;
     getFusedWorldLinearAcceleration(axWorld, ayWorld, azWorld);
     
+    // Apply additional filtering to reduce noise
+    filterAcceleration(axWorld, ayWorld, azWorld);
+    
     unsigned long currentTime = millis();
-    float dt = (currentTime - lastRelativeLinearUpdateTime) / 1000.0; // Convert to seconds
+    float dt = (currentTime - lastRelativeLinearUpdateTime) / 1000.0f;
     lastRelativeLinearUpdateTime = currentTime;
     
-    // Integrate world frame acceleration to get velocity in world frame
-    xRelativeVelocity = xRelativeVelocity + axWorld * dt;
-    yRelativeVelocity = yRelativeVelocity + ayWorld * dt;
-    zRelativeVelocity = zRelativeVelocity + azWorld * dt;
+    // Limit dt to reasonable values in case of delays
+    if (dt > 0.1f) dt = 0.1f;
     
-    // Integrate world frame velocity to get position in world frame
-    xRelativePosition = xRelativePosition + xRelativeVelocity * dt;
-    yRelativePosition = yRelativePosition + yRelativeVelocity * dt;
-    zRelativePosition = zRelativePosition + zRelativeVelocity * dt;
+    // 1. Prediction step with bias compensation
+    float ax_corrected = axWorld - state[6];
+    float ay_corrected = ayWorld - state[7];
+    float az_corrected = azWorld - state[8];
     
-    // Wait before next reading
+    // Apply deadband filter to very small accelerations
+    // Apply stronger deadband when stationary
+    float dynamic_deadband = was_stationary ? 0.5f : 0.30f;
+    if (fabs(ax_corrected) < dynamic_deadband) ax_corrected = 0.0f;
+    if (fabs(ay_corrected) < dynamic_deadband) ay_corrected = 0.0f;
+    if (fabs(az_corrected) < dynamic_deadband) az_corrected = 0.0f;
+    
+    // Use Runge-Kutta integration for better accuracy
+    rungeKutta4Integration(state[0], state[3], ax_corrected, dt); // X position
+    rungeKutta4Integration(state[1], state[4], ay_corrected, dt); // Y position
+    rungeKutta4Integration(state[2], state[5], az_corrected, dt); // Z position
+    
+    // 2. Zero-velocity update detection
+    detectZeroVelocityAndUpdate(state, P, axWorld, ayWorld, azWorld);
+    
+    // 3. GPS update when available (placeholder for now)
+    if (currentTime - lastGpsUpdateTime >= GPS_UPDATE_INTERVAL) {
+      lastGpsUpdateTime = currentTime;
+      
+      // For testing - simulate GPS data (replace with real GPS reading later)
+      simulateGPSData();
+      
+      // When GPS is valid, use it to correct position and velocity drift
+      if (gpsData.valid && gpsData.fixQuality > 0) {
+        // Calculate GPS velocity components from course and speed
+        calculateGPSVelocityComponents();
+        
+        // GPS position correction with trust factor based on fix quality
+        float positionTrustFactor = 0.0f;
+        switch (gpsData.fixQuality) {
+          case 1: positionTrustFactor = 0.01f; break;  // Basic GPS (~10m accuracy)
+          case 2: positionTrustFactor = 0.03f; break;  // DGPS (~3m accuracy)
+          case 4: positionTrustFactor = 0.10f; break;  // RTK (~10cm accuracy)
+          case 5: positionTrustFactor = 0.20f; break;  // Float RTK (~20cm accuracy)
+          default: positionTrustFactor = 0.005f;       // Low trust for unknown quality
+        }
+        
+        // Only apply horizontal position updates (X/Y) from GPS
+        // For Z position, we use the barometer and GPS altitude together
+        
+        // First GPS fix after startup - initialize position reference
+        static bool firstGpsFix = true;
+        static float initialLat = 0, initialLon = 0;
+        
+        if (firstGpsFix) {
+          initialLat = gpsData.latitude;
+          initialLon = gpsData.longitude;
+          firstGpsFix = false;
+        } else {
+          // Convert GPS lat/lon deltas to meters (simplified flat earth model)
+          // More accurate calculation would use Haversine formula
+          const float DEG_TO_METERS = 111319.9f; // Approximate meters per degree at equator
+          
+          float latDelta = (gpsData.latitude - initialLat) * DEG_TO_METERS;
+          float lonDelta = (gpsData.longitude - initialLon) * DEG_TO_METERS * 
+                          cos(gpsData.latitude * PI/180.0f);
+                          
+          // Apply correction to position estimates (X/Y only)
+          float gpsX = latDelta; // North direction as X
+          float gpsY = lonDelta; // East direction as Y
+          
+          // Complementary filter for position - blend IMU integration with GPS
+          state[0] = (1.0f - positionTrustFactor) * state[0] + positionTrustFactor * gpsX;
+          state[1] = (1.0f - positionTrustFactor) * state[1] + positionTrustFactor * gpsY;
+        }
+        
+        // Apply velocity corrections from GPS
+        float velocityTrustFactor = positionTrustFactor * 2.0f; // Typically trust velocity more
+        if (velocityTrustFactor > 0.5f) velocityTrustFactor = 0.5f; // Cap at 0.5
+        
+        state[3] = (1.0f - velocityTrustFactor) * state[3] + velocityTrustFactor * gpsData.vx;
+        state[4] = (1.0f - velocityTrustFactor) * state[4] + velocityTrustFactor * gpsData.vy;
+        
+        // Z velocity from GPS is usually less accurate, lower weight
+        state[5] = (1.0f - velocityTrustFactor * 0.5f) * state[5] + 
+                   (velocityTrustFactor * 0.5f) * gpsData.vz;
+      }
+      
+      // Update altitude using barometer and GPS in complementary filter
+      updateAltitudeWithComplementaryFilter();
+      
+      // Override Z position with the filtered altitude value
+      state[2] = zRelativePosition;
+    }
+    
+    // Update class variables
+    xRelativePosition = state[0];
+    yRelativePosition = state[1];
+    zRelativePosition = state[2];
+    xRelativeVelocity = state[3];
+    yRelativeVelocity = state[4];
+    zRelativeVelocity = state[5];
+    
     threads.delay(interval/2);
   }
 }
 
 void Sensors::start(uint16_t interval)
 {
+  if (!sensorsInitialized) {
+    Serial.println("ERROR: Cannot start sensors - not initialized!");
+    return;
+  }
+  
+  if (!areSensorsReady()) {
+    Serial.println("WARNING: Starting with insufficient sensors!");
+    // You could abort here if you want to enforce minimum sensor requirements
+  }
+  
   running = true;
   this->interval = interval;
-  Wire1.setClock(400000);
-  Wire2.setClock(400000);
+  
+  // Set reference points
   setRelativePosition(0.0, 0.0, 0.0);
   setRelativeVelocity(0.0, 0.0, 0.0);
-  threads.delay(100);
-  enableReportsForIMU(&imu1, interval);
-  threads.delay(100);
-  enableReportsForIMU(&imu2, interval);
-  threads.delay(100);
-  enableReportsForIMU(&imu3, interval);
-  threads.delay(100);
+
+  // Start each data stream
+  Serial.println("Enabling sensor reports...");
+  
+  if (status.imu1) {
+    enableReportsForIMU(&imu1, interval);
+    Serial.println("- IMU1 reports enabled");
+    threads.delay(50);
+  }
+  
+  if (status.imu2) {
+    enableReportsForIMU(&imu2, interval);
+    Serial.println("- IMU2 reports enabled");
+    threads.delay(50);
+  }
+  
+  if (status.imu3) {
+    enableReportsForIMU(&imu3, interval);
+    Serial.println("- IMU3 reports enabled");
+    threads.delay(50);
+  }
+
+  // Wait for sensors to stabilize further
+  Serial.println("Allowing sensors to stabilize...");
+  delay(200);
+
+  // Start sensor threads
+  Serial.println("Starting sensor threads...");
   altimeterSensorThreadId = threads.addThread(altimeterSensorThreadWrapper, this);
   temperatureSensorThreadId = threads.addThread(temperatureSensorThreadWrapper, this);
   imuSensorThreadId = threads.addThread(imuSensorThreadWrapper, this);
   computeRelativeLinearThreadId = threads.addThread(computeRelativeLinearThreadWrapper, this);
+  
+  Serial.println("Sensor system fully started");
 }
 
 void Sensors::stopDataCollection()
@@ -251,51 +515,158 @@ float Sensors::getAltitude()
   return this->altitude;
 }
 
-// use median filter to get the most accurate data out of IMU1, IMU2, IMU3
+// Add these updated implementations for all getFused functions
+
 void Sensors::getFusedLinearAcceleration(float &xLinearAcceleration, float &yLinearAcceleration, float &zLinearAcceleration)
 {
-  // first get info from the struct
-  std::vector<float> axValues = {imu1Data.xLinearAcceleration, imu2Data.xLinearAcceleration, imu3Data.xLinearAcceleration};
-  std::vector<float> ayValues = {imu1Data.yLinearAcceleration, imu2Data.yLinearAcceleration, imu3Data.yLinearAcceleration};
-  std::vector<float> azValues = {imu1Data.zLinearAcceleration, imu2Data.zLinearAcceleration, imu3Data.zLinearAcceleration};
-  std::vector<byte> accuracyValues = {imu1Data.linearAccuracy, imu2Data.linearAccuracy, imu3Data.linearAccuracy};
+  static bool allSensorsWorking = true;
+  
+  // Create vectors with only connected IMUs
+  std::vector<float> axValues;
+  std::vector<float> ayValues;
+  std::vector<float> azValues;
+  std::vector<byte> accuracyValues;
+  
+  // Only add data for connected IMUs
+  if (status.imu1 && imu1Data.linearAccuracy < 254) {
+    axValues.push_back(static_cast<float>(imu1Data.xLinearAcceleration));
+    ayValues.push_back(static_cast<float>(imu1Data.yLinearAcceleration));
+    azValues.push_back(static_cast<float>(imu1Data.zLinearAcceleration));
+    accuracyValues.push_back(static_cast<byte>(imu1Data.linearAccuracy));
+  }
+  
+  if (status.imu2 && imu2Data.linearAccuracy < 254) {
+    axValues.push_back(static_cast<float>(imu2Data.xLinearAcceleration));
+    ayValues.push_back(static_cast<float>(imu2Data.yLinearAcceleration));
+    azValues.push_back(static_cast<float>(imu2Data.zLinearAcceleration));
+    accuracyValues.push_back(static_cast<byte>(imu2Data.linearAccuracy));
+  }
+  
+  if (status.imu3 && imu3Data.linearAccuracy < 254) {
+    axValues.push_back(static_cast<float>(imu3Data.xLinearAcceleration));
+    ayValues.push_back(static_cast<float>(imu3Data.yLinearAcceleration));
+    azValues.push_back(static_cast<float>(imu3Data.zLinearAcceleration));
+    accuracyValues.push_back(static_cast<byte>(imu3Data.linearAccuracy));
+  }
 
-  // call sensorFusion function
-  xLinearAcceleration = sensorFusion(axValues, accuracyValues);
-  yLinearAcceleration = sensorFusion(ayValues, accuracyValues);
-  zLinearAcceleration = sensorFusion(azValues, accuracyValues);
+  // Check if any sensors are valid
+  bool anySensorValid = !accuracyValues.empty();
+  
+  if (!anySensorValid && allSensorsWorking) {
+    Serial.println("WARNING: All linear acceleration sensors have invalid data!");
+    allSensorsWorking = false;
+  } else if (anySensorValid && !allSensorsWorking) {
+    Serial.println("INFO: At least one linear acceleration sensor is now working");
+    allSensorsWorking = true;
+  }
+
+  // Default values in case no sensors are valid
+  xLinearAcceleration = 0.0f;
+  yLinearAcceleration = 0.0f;
+  zLinearAcceleration = 0.0f;
+  
+  // Only call sensorFusion if we have valid sensors
+  if (anySensorValid) {
+    xLinearAcceleration = sensorFusion(axValues, accuracyValues);
+    yLinearAcceleration = sensorFusion(ayValues, accuracyValues);
+    zLinearAcceleration = sensorFusion(azValues, accuracyValues);
+  }
 }
 
 void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVelocity, float &zAngularVelocity)
 {
-  std::vector<float> gxValues = {imu1Data.xAngularVelocity, imu2Data.xAngularVelocity, imu3Data.xAngularVelocity};
-  std::vector<float> gyValues = {imu1Data.yAngularVelocity, imu2Data.yAngularVelocity, imu3Data.yAngularVelocity};
-  std::vector<float> gzValues = {imu1Data.zAngularVelocity, imu2Data.zAngularVelocity, imu3Data.zAngularVelocity};
-  std::vector<byte> accuracyvalues = {imu1Data.gyroAccuracy, imu2Data.gyroAccuracy, imu3Data.gyroAccuracy};
+  static bool allSensorsWorking = true;
+  
+  // Create vectors with only connected IMUs
+  std::vector<float> gxValues;
+  std::vector<float> gyValues;
+  std::vector<float> gzValues;
+  std::vector<byte> accuracyValues;
+  
+  // Only add data for connected IMUs
+  if (status.imu1 && imu1Data.gyroAccuracy < 254) {
+    gxValues.push_back(static_cast<float>(imu1Data.xAngularVelocity));
+    gyValues.push_back(static_cast<float>(imu1Data.yAngularVelocity));
+    gzValues.push_back(static_cast<float>(imu1Data.zAngularVelocity));
+    accuracyValues.push_back(static_cast<byte>(imu1Data.gyroAccuracy));
+  }
+  
+  if (status.imu2 && imu2Data.gyroAccuracy < 254) {
+    gxValues.push_back(static_cast<float>(imu2Data.xAngularVelocity));
+    gyValues.push_back(static_cast<float>(imu2Data.yAngularVelocity));
+    gzValues.push_back(static_cast<float>(imu2Data.zAngularVelocity));
+    accuracyValues.push_back(static_cast<byte>(imu2Data.gyroAccuracy));
+  }
+  
+  if (status.imu3 && imu3Data.gyroAccuracy < 254) {
+    gxValues.push_back(static_cast<float>(imu3Data.xAngularVelocity));
+    gyValues.push_back(static_cast<float>(imu3Data.yAngularVelocity));
+    gzValues.push_back(static_cast<float>(imu3Data.zAngularVelocity));
+    accuracyValues.push_back(static_cast<byte>(imu3Data.gyroAccuracy));
+  }
 
-  // call sensorFusion function
-  xAngularVelocity = sensorFusion(gxValues, accuracyvalues);
-  yAngularVelocity = sensorFusion(gyValues, accuracyvalues);
-  zAngularVelocity = sensorFusion(gzValues, accuracyvalues);
+  // Check if any sensors are valid
+  bool anySensorValid = !accuracyValues.empty();
+  
+  if (!anySensorValid && allSensorsWorking) {
+    Serial.println("WARNING: All angular velocity sensors have invalid data!");
+    allSensorsWorking = false;
+  } else if (anySensorValid && !allSensorsWorking) {
+    Serial.println("INFO: At least one angular velocity sensor is now working");
+    allSensorsWorking = true;
+  }
+
+  // Default values in case no sensors are valid
+  xAngularVelocity = 0.0f;
+  yAngularVelocity = 0.0f;
+  zAngularVelocity = 0.0f;
+  
+  // Only call sensorFusion if we have valid sensors
+  if (anySensorValid) {
+    xAngularVelocity = sensorFusion(gxValues, accuracyValues);
+    yAngularVelocity = sensorFusion(gyValues, accuracyValues);
+    zAngularVelocity = sensorFusion(gzValues, accuracyValues);
+  }
 }
 
 void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation, float &rollOrientation)
 {
   static bool allSensorsWorking = true;
-  std::vector<float> yawValues = {imu1Data.yawOrientation, imu2Data.yawOrientation, imu3Data.yawOrientation};
-  std::vector<float> pitchValues = {imu1Data.pitchOrientation, imu2Data.pitchOrientation, imu3Data.pitchOrientation};
-  std::vector<float> rollValues = {imu1Data.rollOrientation, imu2Data.rollOrientation, imu3Data.rollOrientation};
-  std::vector<byte> accuracyValues = {imu1Data.rotationAccuracy, imu2Data.rotationAccuracy, imu3Data.rotationAccuracy};
-  std::vector<float> orientationAccuracy = {imu1Data.orientationAccuracy, imu2Data.orientationAccuracy, imu3Data.orientationAccuracy};
+  
+  // Create vectors with only connected IMUs
+  std::vector<float> yawValues;
+  std::vector<float> pitchValues;
+  std::vector<float> rollValues;
+  std::vector<byte> accuracyValues;
+  std::vector<float> orientationAccuracyValues;
+  
+  // Only add data for connected IMUs
+  if (status.imu1 && imu1Data.rotationAccuracy < 254) {
+    yawValues.push_back(static_cast<float>(imu1Data.yawOrientation));
+    pitchValues.push_back(static_cast<float>(imu1Data.pitchOrientation));
+    rollValues.push_back(static_cast<float>(imu1Data.rollOrientation));
+    accuracyValues.push_back(static_cast<byte>(imu1Data.rotationAccuracy));
+    orientationAccuracyValues.push_back(static_cast<float>(imu1Data.orientationAccuracy));
+  }
+  
+  if (status.imu2 && imu2Data.rotationAccuracy < 254) {
+    yawValues.push_back(static_cast<float>(imu2Data.yawOrientation));
+    pitchValues.push_back(static_cast<float>(imu2Data.pitchOrientation));
+    rollValues.push_back(static_cast<float>(imu2Data.rollOrientation));
+    accuracyValues.push_back(static_cast<byte>(imu2Data.rotationAccuracy));
+    orientationAccuracyValues.push_back(static_cast<float>(imu2Data.orientationAccuracy));
+  }
+  
+  if (status.imu3 && imu3Data.rotationAccuracy < 254) {
+    yawValues.push_back(static_cast<float>(imu3Data.yawOrientation));
+    pitchValues.push_back(static_cast<float>(imu3Data.pitchOrientation));
+    rollValues.push_back(static_cast<float>(imu3Data.rollOrientation));
+    accuracyValues.push_back(static_cast<byte>(imu3Data.rotationAccuracy));
+    orientationAccuracyValues.push_back(static_cast<float>(imu3Data.orientationAccuracy));
+  }
 
   // Check if any sensors are valid
-  bool anySensorValid = false;
-  for (byte accuracy : accuracyValues) {
-    if (accuracy >= 0) {
-      anySensorValid = true;
-      break;
-    }
-  }
+  bool anySensorValid = !accuracyValues.empty();
   
   if (!anySensorValid && allSensorsWorking) {
     Serial.println("WARNING: All orientation sensors have invalid data!");
@@ -305,32 +676,87 @@ void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation
     allSensorsWorking = true;
   }
 
-  // call sensorFusion function
-  yawOrientation = sensorFusion(yawValues, accuracyValues, orientationAccuracy);
-  pitchOrientation = sensorFusion(pitchValues, accuracyValues, orientationAccuracy);
-  rollOrientation = sensorFusion(rollValues, accuracyValues, orientationAccuracy);
+  // Default values in case no sensors are valid
+  yawOrientation = 0.0f;
+  pitchOrientation = 0.0f;
+  rollOrientation = 0.0f;
+  
+  // Only call sensorFusion if we have valid sensors
+  if (anySensorValid) {
+    yawOrientation = sensorFusion(yawValues, accuracyValues, orientationAccuracyValues);
+    pitchOrientation = sensorFusion(pitchValues, accuracyValues, orientationAccuracyValues);
+    rollOrientation = sensorFusion(rollValues, accuracyValues, orientationAccuracyValues);
+  }
 }
 
 void Sensors::getFusedQuaternion(float &quatI, float &quatJ, float &quatK, float &quatReal)
 {
-  std::vector<float> iValues = {imu1Data.quatI, imu2Data.quatI, imu3Data.quatI};
-  std::vector<float> jValues = {imu1Data.quatJ, imu2Data.quatJ, imu3Data.quatJ};
-  std::vector<float> kValues = {imu1Data.quatK, imu2Data.quatK, imu3Data.quatK};
-  std::vector<float> realValues = {imu1Data.quatReal, imu2Data.quatReal, imu3Data.quatReal};
-  std::vector<byte> accuracyValues = {imu1Data.rotationAccuracy, imu2Data.rotationAccuracy, imu3Data.rotationAccuracy};
-
-  quatI = sensorFusion(iValues, accuracyValues);
-  quatJ = sensorFusion(jValues, accuracyValues);
-  quatK = sensorFusion(kValues, accuracyValues);
-  quatReal = sensorFusion(realValues, accuracyValues);
+  static bool allSensorsWorking = true;
   
-  // Normalize the quaternion
-  float norm = sqrt(quatI*quatI + quatJ*quatJ + quatK*quatK + quatReal*quatReal);
-  if (norm > 0.0001) {
-    quatI /= norm;
-    quatJ /= norm;
-    quatK /= norm;
-    quatReal /= norm;
+  // Create vectors with only connected IMUs
+  std::vector<float> iValues;
+  std::vector<float> jValues;
+  std::vector<float> kValues;
+  std::vector<float> realValues;
+  std::vector<byte> accuracyValues;
+  
+  // Only add data for connected IMUs
+  if (status.imu1 && imu1Data.rotationAccuracy < 254) {
+    iValues.push_back(static_cast<float>(imu1Data.quatI));
+    jValues.push_back(static_cast<float>(imu1Data.quatJ));
+    kValues.push_back(static_cast<float>(imu1Data.quatK));
+    realValues.push_back(static_cast<float>(imu1Data.quatReal));
+    accuracyValues.push_back(static_cast<byte>(imu1Data.rotationAccuracy));
+  }
+  
+  if (status.imu2 && imu2Data.rotationAccuracy < 254) {
+    iValues.push_back(static_cast<float>(imu2Data.quatI));
+    jValues.push_back(static_cast<float>(imu2Data.quatJ));
+    kValues.push_back(static_cast<float>(imu2Data.quatK));
+    realValues.push_back(static_cast<float>(imu2Data.quatReal));
+    accuracyValues.push_back(static_cast<byte>(imu2Data.rotationAccuracy));
+  }
+  
+  if (status.imu3 && imu3Data.rotationAccuracy < 254) {
+    iValues.push_back(static_cast<float>(imu3Data.quatI));
+    jValues.push_back(static_cast<float>(imu3Data.quatJ));
+    kValues.push_back(static_cast<float>(imu3Data.quatK));
+    realValues.push_back(static_cast<float>(imu3Data.quatReal));
+    accuracyValues.push_back(static_cast<byte>(imu3Data.rotationAccuracy));
+  }
+
+  // Check if any sensors are valid
+  bool anySensorValid = !accuracyValues.empty();
+  
+  if (!anySensorValid && allSensorsWorking) {
+    Serial.println("WARNING: All quaternion sensors have invalid data!");
+    allSensorsWorking = false;
+  } else if (anySensorValid && !allSensorsWorking) {
+    Serial.println("INFO: At least one quaternion sensor is now working");
+    allSensorsWorking = true;
+  }
+
+  // Default values in case no sensors are valid
+  quatI = 0.0f;
+  quatJ = 0.0f;
+  quatK = 0.0f;
+  quatReal = 1.0f;  // Default to identity quaternion
+  
+  // Only call sensorFusion if we have valid sensors
+  if (anySensorValid) {
+    quatI = sensorFusion(iValues, accuracyValues);
+    quatJ = sensorFusion(jValues, accuracyValues);
+    quatK = sensorFusion(kValues, accuracyValues);
+    quatReal = sensorFusion(realValues, accuracyValues);
+    
+    // Normalize the quaternion
+    float norm = sqrt(quatI*quatI + quatJ*quatJ + quatK*quatK + quatReal*quatReal);
+    if (norm > 0.0001) {
+      quatI /= norm;
+      quatJ /= norm;
+      quatK /= norm;
+      quatReal /= norm;
+    }
   }
 }
 
@@ -452,52 +878,329 @@ void Sensors::setRelativePosition(float px, float py, float pz)
 // use bool accuracyDegrees to determine type of accuracy (linear or orientation)
 float Sensors::sensorFusion(std::vector<float> values, std::vector<byte> accuracy, std::vector<float> orientationAccuracy)
 {
-  // want to ignore any values that have a negative accuracy
-  // check if there is a negative value in the accuracy vector
-  // want to check if there is a negative value in accuracy vector, if there is, remove corresponding value from values vector
-  std::vector<float> new_values; // create new vectors to store values and accuracy that are not negative
-  std::vector<float> new_accuracy;
-  std::vector<float> new_orientationAccuracy;
-  int valuesize = values.size();
-  for (int i = 0; i < valuesize; i++)
+  // All values passed to this function are now pre-filtered for valid IMUs
+  
+  if (values.size() == 3)
   {
-    if (accuracy[i] >= 0) // if accuracy is positive or 0
-    {
-      new_values.push_back(values[i]);
-      new_accuracy.push_back(accuracy[i]);
-      if (!orientationAccuracy.empty())
-      {
-        new_orientationAccuracy.push_back(orientationAccuracy[i]);
-      }
-    }
+    std::sort(values.begin(), values.end()); // if there are 3 values, return the median value
+    return values[1];                        // get middle value
   }
-
-  if (new_values.size() == 3)
+  else if (values.size() == 2)
   {
-    std::sort(new_values.begin(), new_values.end()); // if there are 3 values, then return the median value, this will ignore outliers
-    return new_values[1];                            // get middle value
-  }
-  else if (new_values.size() == 2)
-  {
-    // if only 2 are working, want to return the value with best accuracy
-    //  note for linear accuracy (0-3), the higher the value the better
-    // for orientation accuracy (degrees), the lower the value the better
-    if (orientationAccuracy.empty()) // use accuracyIsDegrees to determine type of accuracy (1 if is empty, 0 if not)
+    // If only 2 are working, return the value with best accuracy
+    if (orientationAccuracy.empty())
     {
-      return new_accuracy[0] > new_accuracy[1] ? new_values[0] : new_values[1]; // if accuracy is linear (0-3) want highest accuracy
+      return accuracy[0] > accuracy[1] ? values[0] : values[1]; // For linear accuracy (0-3), higher is better
     }
     else
     {
-      return new_orientationAccuracy[0] < new_orientationAccuracy[1] ? new_values[0] : new_values[1]; // if in degrees want lowest accuracy
+      return orientationAccuracy[0] < orientationAccuracy[1] ? values[0] : values[1]; // For degrees, lower is better
     }
   }
-  else if (new_values.size() == 1)
+  else if (values.size() == 1)
   {
-    return new_values[0]; // if only 1 sensor is working, then return that value
+    return values[0]; // If only 1 sensor is working, return that value
   }
   else
   {
-    // add here if no sensors are working
+    // No sensors are working
     return 0.0;
   }
+}
+
+void Sensors::calibrateAllIMUs(){
+  // Calibrate all IMUs
+  if (status.imu1)
+  {
+    imu1.calibrateAll();
+  }
+  if (status.imu2)
+  {
+    imu2.calibrateAll();
+  }
+  if (status.imu3)
+  {
+    imu3.calibrateAll();
+  }
+}
+
+void Sensors::updateAltitudeWithComplementaryFilter()
+{
+  // Get altitude from barometer
+  float baroAltitude = getAltitude();
+  
+  // Vertical acceleration component (world frame)
+  float azWorld = 0.0f;
+  float axWorld = 0.0f, ayWorld = 0.0f;
+  getFusedWorldLinearAcceleration(axWorld, ayWorld, azWorld);
+  
+  // Static values to maintain state between calls
+  static float prevAltitude = baroAltitude;
+  static float integratedAltitude = baroAltitude;
+  static unsigned long prevTime = millis();
+  
+  // Calculate time delta
+  unsigned long currentTime = millis();
+  float dt = (currentTime - prevTime) / 1000.0f;
+  prevTime = currentTime;
+  
+  // Limit dt to prevent large jumps
+  if (dt > 0.1f) dt = 0.1f;
+  
+  // First integrate vertical acceleration to update altitude
+  // Use gravitational constant to apply gravity compensation correction
+  // (although BNO080's linear acceleration should already exclude gravity)
+  float azWithoutGravity = azWorld;
+  
+  // Double integration for altitude from acceleration
+  integratedAltitude += zRelativeVelocity * dt + 0.5f * azWithoutGravity * dt * dt;
+  
+  // Now combine with barometric altitude
+  const float ALPHA_BARO = 0.05f; // Weight for barometer (low-pass filter)
+  
+  // Check if GPS data is valid to include it
+  if (gpsData.valid && gpsData.fixQuality > 0) {
+    // Three-way complementary filter with GPS altitude included
+    // Weight depends on GPS fix quality
+    float gpsWeight = 0.0f;
+    switch (gpsData.fixQuality) {
+      case 1: gpsWeight = 0.01f; break;  // Basic GPS
+      case 2: gpsWeight = 0.02f; break;  // DGPS
+      case 4: gpsWeight = 0.05f; break;  // RTK
+      case 5: gpsWeight = 0.05f; break;  // Float RTK
+      default: gpsWeight = 0.005f;       // Low trust for unknown quality
+    }
+    
+    // Adjust baro weight to maintain proper sum
+    float accelWeight = 1.0f - ALPHA_BARO - gpsWeight;
+    
+    // Apply three-source complementary filter
+    zRelativePosition = 
+        accelWeight * integratedAltitude + 
+        ALPHA_BARO * baroAltitude + 
+        gpsWeight * gpsData.altitude;
+  } 
+  else {
+    // If no GPS, fall back to two-source filter
+    float accelWeight = 1.0f - ALPHA_BARO;
+    
+    // Apply two-source complementary filter
+    zRelativePosition = accelWeight * integratedAltitude + ALPHA_BARO * baroAltitude;
+  }
+  
+  // Update integrated altitude based on the filtered value to reduce drift
+  // This pulls the integration back toward the absolute references
+  integratedAltitude = zRelativePosition;
+  
+  // Also update the vertical velocity estimate using barometer
+  float baroVelocity = (baroAltitude - prevAltitude) / dt;
+  prevAltitude = baroAltitude;
+  
+  // Filter the velocity estimate
+  const float VEL_ALPHA = 0.1f; // Weight for barometer-derived velocity
+  zRelativeVelocity = (1.0f - VEL_ALPHA) * zRelativeVelocity + VEL_ALPHA * baroVelocity;
+}
+
+void Sensors::rungeKutta4Integration(float &position, float &velocity, float acceleration, float dt)
+{
+  // RK4 for velocity
+  float k1v = acceleration;
+  float k2v = acceleration;
+  float k3v = acceleration;
+  float k4v = acceleration;
+  
+  float velocity_next = velocity + (dt/6.0) * (k1v + 2*k2v + 2*k3v + k4v);
+  
+  // RK4 for position
+  float k1p = velocity;
+  float k2p = velocity + 0.5*dt*k1v;
+  float k3p = velocity + 0.5*dt*k2v;
+  float k4p = velocity + dt*k3v;
+  
+  float position_next = position + (dt/6.0) * (k1p + 2*k2p + 2*k3p + k4p);
+  
+  // Update values
+  position = position_next;
+  velocity = velocity_next;
+}
+
+void Sensors::detectZeroVelocityAndUpdate(float state[9], float P[9][9], 
+                                        float ax, float ay, float az)
+{
+  // Calculate acceleration magnitude (without gravity)
+  float accel_magnitude = sqrt(ax*ax + ay*ay + az*az);
+  
+  // Get angular velocity for stationary detection
+  float wx, wy, wz;
+  getFusedAngularVelocity(wx, wy, wz);
+  float angular_velocity_magnitude = sqrt(wx*wx + wy*wy + wz*wz);
+  
+  // More sensitive thresholds for zero-velocity detection
+  const float ACCEL_THRESHOLD = 0.03f;
+  const float GYRO_THRESHOLD = 0.03f;
+  const float VELOCITY_THRESHOLD = 0.1f;
+  
+  // Calculate velocity magnitude
+  float velocity_magnitude = sqrt(state[3]*state[3] + state[4]*state[4] + state[5]*state[5]);
+  
+  // Incorporate hysteresis for stability
+  static int stationary_count = 0;
+  static int moving_count = 0;
+  
+  const int MIN_STATIONARY_SAMPLES = 8;
+  const int MIN_MOVING_SAMPLES = 3;
+  
+  bool stationary_condition = (accel_magnitude < ACCEL_THRESHOLD) && 
+                              (angular_velocity_magnitude < GYRO_THRESHOLD) &&
+                              (velocity_magnitude < VELOCITY_THRESHOLD);
+  
+  if (stationary_condition) {
+    // Rest of function remains the same...
+    
+    if (stationary_count >= MIN_STATIONARY_SAMPLES) {
+      was_stationary = true;
+      
+      // Existing code...
+    }
+  } else {
+    // Existing code...
+    
+    if (moving_count >= MIN_MOVING_SAMPLES) {
+      stationary_count = 0;
+      if (was_stationary) {
+        was_stationary = false;
+        Serial.println("Motion detected - exiting zero velocity state");
+      }
+    }
+  }
+}
+
+// Add this method to Sensors class
+void Sensors::filterAcceleration(float &ax, float &ay, float &az)
+{
+  static float prev_ax = 0, prev_ay = 0, prev_az = 0;
+  static float filt_ax = 0, filt_ay = 0, filt_az = 0;
+  static bool first_call = true;
+  
+  if (first_call) {
+    prev_ax = ax; prev_ay = ay; prev_az = az;
+    filt_ax = ax; filt_ay = ay; filt_az = az;
+    first_call = false;
+    return;
+  }
+  
+  // Two-stage filter: first stage (fast response)
+  const float ALPHA1 = 0.7f;
+  filt_ax = ALPHA1 * filt_ax + (1.0f - ALPHA1) * ax;
+  filt_ay = ALPHA1 * filt_ay + (1.0f - ALPHA1) * ay;
+  filt_az = ALPHA1 * filt_az + (1.0f - ALPHA1) * az;
+  
+  // Second stage (further smoothing for steady-state)
+  const float ALPHA2 = 0.9f;
+  ax = ALPHA2 * prev_ax + (1.0f - ALPHA2) * filt_ax;
+  ay = ALPHA2 * prev_ay + (1.0f - ALPHA2) * filt_ay;
+  az = ALPHA2 * prev_az + (1.0f - ALPHA2) * filt_az;
+  
+  // Update previous values
+  prev_ax = ax; prev_ay = ay; prev_az = az;
+}
+
+float Sensors::getLatitude() {
+  return gpsData.latitude;
+}
+
+float Sensors::getLongitude() {
+  return gpsData.longitude;
+}
+
+float Sensors::getGPSAltitude() {
+  return gpsData.altitude;
+}
+
+float Sensors::getGPSSpeed() {
+  return gpsData.speed;
+}
+
+float Sensors::getGPSCourse() {
+  return gpsData.course;
+}
+
+uint8_t Sensors::getGPSSatellites() {
+  return gpsData.satellites;
+}
+
+uint8_t Sensors::getGPSFixQuality() {
+  return gpsData.fixQuality;
+}
+
+bool Sensors::isGPSValid() {
+  return gpsData.valid;
+}
+
+// Methods for future GPS integration
+void Sensors::updatePositionWithGPS() {
+  // This will be implemented when GPS hardware is integrated
+  // For now, just a placeholder that does nothing
+  
+  // Future implementation would:
+  // 1. Check if GPS data is valid
+  // 2. Apply Kalman filtering to combine IMU and GPS data
+  // 3. Correct position drift using absolute GPS position
+}
+
+void Sensors::updateVelocityWithGPS() {
+  // This will be implemented when GPS hardware is integrated
+  // For now, just a placeholder that does nothing
+  
+  // Future implementation would:
+  // 1. Check if GPS data is valid
+  // 2. Apply Kalman filtering to combine IMU and GPS data
+  // 3. Correct velocity drift using GPS velocity
+}
+
+// For simulating GPS data during testing
+void Sensors::simulateGPSData() {
+  // Only for testing - will be removed when actual GPS is integrated
+  // This method could be called periodically to simulate GPS updates
+  
+  // For now, just simulate a fixed position with some simple altitude change
+  static unsigned long lastUpdate = 0;
+  if (millis() - lastUpdate > 2000) { // Simulate 1Hz update rate
+    lastUpdate = millis();
+    
+    // Example fixed position (McGill University coordinates)
+    gpsData.latitude = 45.5048;
+    gpsData.longitude = -73.5772;
+    
+    // Simulate altitude based on barometer with some offset
+    gpsData.altitude = getAltitude() + 2.0f; // 2m offset from barometric altitude
+    
+    // Set other fields with reasonable values
+    // gpsData.speed = sqrt(xRelativeVelocity*xRelativeVelocity + 
+                        //  yRelativeVelocity*yRelativeVelocity +
+                        //  zRelativeVelocity*zRelativeVelocity);
+    gpsData.speed = 0.0f; // Placeholder
+    gpsData.course = 0.0f; // North
+    // gpsData.vx = xRelativeVelocity;
+    // gpsData.vy = yRelativeVelocity;
+    // gpsData.vz = zRelativeVelocity;
+    gpsData.vx = 0.0f; // Placeholder
+    gpsData.vy = 0.0f; // Placeholder
+    gpsData.vz = 0.0f; // Placeholder
+    gpsData.satellites = 8;
+    gpsData.fixQuality = 2; // 0=no fix, 1=GPS, 2=DGPS, etc.
+    gpsData.timestamp = millis();
+    gpsData.valid = true;
+  }
+}
+
+// Calculate velocity components from speed and course
+void Sensors::calculateGPSVelocityComponents() {
+  // This will be implemented when GPS hardware is integrated
+  // For now, just a placeholder that does nothing
+  
+  // Future implementation would calculate vx, vy, vz from speed and course:
+  // gpsData.vx = gpsData.speed * cos(gpsData.course * PI/180.0);
+  // gpsData.vy = gpsData.speed * sin(gpsData.course * PI/180.0);
+  // gpsData.vz would come from change in altitude
 }

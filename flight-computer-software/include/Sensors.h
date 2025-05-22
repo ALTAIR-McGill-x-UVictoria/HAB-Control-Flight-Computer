@@ -59,6 +59,22 @@ struct SensorDataIMU
   volatile float quatI, quatJ, quatK, quatReal;
 };
 
+// Add a structure for GPS data
+struct GPSData {
+  volatile float latitude;         // Degrees (WGS84)
+  volatile float longitude;        // Degrees (WGS84)
+  volatile float altitude;         // Meters above sea level
+  volatile float speed;            // Ground speed in m/s
+  volatile float course;           // Course over ground in degrees (0-360, 0=north)
+  volatile float vx;               // North velocity component in m/s
+  volatile float vy;               // East velocity component in m/s
+  volatile float vz;               // Down velocity component in m/s
+  volatile uint8_t satellites;     // Number of satellites used for fix
+  volatile uint8_t fixQuality;     // Fix quality (0=no fix, 1=GPS, 2=DGPS, etc.)
+  volatile uint32_t timestamp;     // Time of last GPS update (milliseconds)
+  volatile bool valid;             // Indicates if GPS data is valid
+};
+
 class Sensors
 {
 public:
@@ -71,6 +87,9 @@ public:
 
   volatile float xRelativeVelocity, yRelativeVelocity, zRelativeVelocity;
   volatile float xRelativePosition, yRelativePosition, zRelativePosition;
+
+  // Add GPS data to public section
+  GPSData gpsData;
   
   // Initializes the sensors
   void begin();
@@ -127,6 +146,30 @@ public:
   // params: float &quatI, float &quatJ, float &quatK, float &quatReal
   void getFusedQuaternion(float &quatI, float &quatJ, float &quatK, float &quatReal);
 
+  // Calibrates the IMUs
+  // params: void
+  void calibrateAllIMUs();
+
+  // Check if sensors are ready for operation
+  bool areSensorsReady();
+  
+  // Reset and reinitialize a specific IMU
+  bool resetIMU(int imuNumber);
+
+  // Add GPS-related methods
+  float getLatitude();
+  float getLongitude();
+  float getGPSAltitude();
+  float getGPSSpeed();
+  float getGPSCourse();
+  uint8_t getGPSSatellites();
+  uint8_t getGPSFixQuality();
+  bool isGPSValid();
+  
+  // Methods for future integration
+  void updatePositionWithGPS();
+  void updateVelocityWithGPS();
+  
 private:
   // The temperature probe sensor
   Adafruit_MAX31865 temperatureProbe = Adafruit_MAX31865(10, 11, 12, 13); // software SPI: CS, DI, DO, CLK
@@ -152,6 +195,8 @@ private:
   unsigned long lastImu3UpdateTime;
   unsigned long lastAltimeterUpdateTime;
   unsigned long lastRelativeLinearUpdateTime;
+
+  bool sensorsInitialized = false;
 
   // Enables reports for the IMU
   // params: BNO080* imu, uint16_t interval
@@ -201,7 +246,26 @@ private:
   void quaternionConjugate(float i, float j, float k, float real, 
                           float &conj_i, float &conj_j, float &conj_k, float &conj_real);
 
+  // Helper method to initialize a single IMU with retries
+  bool initializeSingleIMU(BNO080 &imu, TwoWire &wire, uint8_t address, int maxRetries = 5);
+
+  void updateAltitudeWithComplementaryFilter();
+
+  void rungeKutta4Integration(float &position, float &velocity, float acceleration, float dt);
+
+  void detectZeroVelocityAndUpdate(float state[9], float P[9][9], float ax, float ay, float az);
+
+  void filterAcceleration(float &ax, float &ay, float &az);
+
   static float filtered_roll, filtered_pitch, filtered_yaw;
+  bool was_stationary = false;
+
+  // For GPS signal simulation in testing (remove when actual GPS is integrated)
+  void simulateGPSData();
+
+  // For future GPS integration
+  void calculateGPSVelocityComponents();
+  void performKalmanFilter();  // Future implementation for sensor fusion
 };
 
 #endif // SENSORS_H
