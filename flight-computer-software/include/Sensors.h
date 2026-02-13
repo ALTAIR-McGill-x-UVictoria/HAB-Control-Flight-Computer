@@ -57,6 +57,8 @@ library to provide the following data :
 #define FILTER_ALPHA1_DOUBLE 0.4f      // First stage alpha for double exp
 #define FILTER_ALPHA2_DOUBLE 0.25f     // Second stage alpha for double exp
 
+#define IMU_POLL_SEQUENTIAL 1
+
 struct SensorStatus
 {
   bool pressure;

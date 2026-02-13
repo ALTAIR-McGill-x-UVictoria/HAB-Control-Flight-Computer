@@ -11,6 +11,8 @@
 // #include <core_pins.h> // Required for DMAMEM
 #include "utils.h"
 
+#define RUN_MODEL 0
+
 // Function declarations
 
 // Thread function declarations
@@ -253,6 +255,7 @@ void loop()
 
     }
     
+    #if RUN_MODEL
     // Update sensor readings and run model at a controlled rate (10Hz is sufficient)
     if (millis() - lastModelRunTime >= 1000) {
         lastModelRunTime = millis();
@@ -305,7 +308,9 @@ void loop()
         } else {
             Serial.println("Failed!");
         }
+    
     }
+    #endif
     
     // Debug output every 500ms
     if (millis() - debugPrintTime > 200) {
@@ -350,6 +355,17 @@ void printCurrentData(){
                     sensors.status.imu1 ? "OK" : "FAIL",
                     sensors.status.imu2 ? "OK" : "FAIL", 
                     sensors.status.imu3 ? "OK" : "FAIL");
+    
+    // IMU accuracy
+    Serial.printf("IMU Orentation ACCURACY: IMU1=%.2f°, IMU2=%.2f°, IMU3=%.2f°\n",
+                    sensors.imu1Data.orientationAccuracy,
+                    sensors.imu2Data.orientationAccuracy,
+                    sensors.imu3Data.orientationAccuracy);
+
+    Serial.printf("IMU Rotation ACCURACY: IMU1=%d, IMU2=%d, IMU3=%d\n",
+                    sensors.imu1Data.rotationAccuracy,
+                    sensors.imu2Data.rotationAccuracy,
+                    sensors.imu3Data.rotationAccuracy);
 
     // Timer comparison
     Serial.printf("Last sensor poll dt: IMU1=%lums, IMU2=%lums, IMU3=%lums\n", lastIMU1time, lastIMU2time, lastIMU3time);

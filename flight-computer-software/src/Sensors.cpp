@@ -24,7 +24,9 @@ float Sensors::filtered_roll = 0.0f;
 float Sensors::filtered_pitch = 0.0f;
 float Sensors::filtered_yaw = 0.0f;
 
-// std::map<std::string, float> Sensors::lastFusedValues; // Key is a unique ID for each measurement type
+#if ENABLE_TEMPORAL_FILTER
+std::map<std::string, float> Sensors::lastFusedValues; // Key is a unique ID for each measurement type
+#endif
 
 void Sensors::begin()
 {
@@ -312,6 +314,7 @@ void Sensors::imuSensorThreadImpl()
     
     while (running)
     {
+        #if IMU_POLL_SEQUENTIAL
         // Process only one IMU per loop iteration
         switch(currentImuState) {
             case 0:
@@ -348,6 +351,30 @@ void Sensors::imuSensorThreadImpl()
         // Yield after processing a single IMU
         threads.yield();
         // threads.delay(1);
+        #else
+        // Process all IMUs in parallel
+        if (status.imu1) {
+            unsigned long prevTime = lastImu1UpdateTime;
+            processIMUSensor(imu1, imu1Data, lastImu1UpdateTime, status.imu1);
+            currentTime = millis();
+            lastIMU1UpdateTime = currentTime - prevTime;
+        }
+        if (status.imu2) {
+            unsigned long prevTime = lastImu2UpdateTime;
+            processIMUSensor(imu2, imu2Data, lastImu2UpdateTime, status.imu2);
+            currentTime = millis();
+            lastIMU2UpdateTime = currentTime - prevTime;
+        }
+        if (status.imu3) {
+            unsigned long prevTime = lastImu3UpdateTime;
+            processIMUSensor(imu3, imu3Data, lastImu3UpdateTime, status.imu3);
+            currentTime = millis();
+            lastIMU3UpdateTime = currentTime - prevTime;
+        }
+        // Yield to allow other threads to run
+        threads.yield();
+        threads.delay(1);
+        #endif
     }
 }
 
@@ -387,7 +414,7 @@ void Sensors::computeRelativeLinearThreadImpl()
     
     // Apply deadband filter to very small accelerations
     // Apply stronger deadband when stationary
-    float dynamic_deadband = was_stationary ? 0.5f : 0.30f;
+    float dynamic_deadband = was_stationary ? 0.12f : 0.08f;
     if (fabs(ax_corrected) < dynamic_deadband) ax_corrected = 0.0f;
     if (fabs(ay_corrected) < dynamic_deadband) ay_corrected = 0.0f;
     if (fabs(az_corrected) < dynamic_deadband) az_corrected = 0.0f;
@@ -625,10 +652,17 @@ void Sensors::getFusedLinearAcceleration(float &xLinearAcceleration, float &yLin
     float rawY = sensorFusion(ayValues, accuracyValues);
     float rawZ = sensorFusion(azValues, accuracyValues);
     
+#if ENABLE_TEMPORAL_FILTER
     // Apply temporal filtering with appropriate max change rates
-    xLinearAcceleration = applyTemporalFilter("accel_x", rawX, 20.0f); // Allow up to 20 m/s² change per sec
+    xLinearAcceleration = applyTemporalFilter("accel_x", rawX, 20.0f);
     yLinearAcceleration = applyTemporalFilter("accel_y", rawY, 20.0f);
     zLinearAcceleration = applyTemporalFilter("accel_z", rawZ, 20.0f);
+#else
+    // When filtering is disabled, use raw values directly
+    xLinearAcceleration = rawX;
+    yLinearAcceleration = rawY;
+    zLinearAcceleration = rawZ;
+#endif
   }
 }
 
@@ -687,10 +721,17 @@ void Sensors::getFusedAngularVelocity(float &xAngularVelocity, float &yAngularVe
     float rawY = sensorFusion(gyValues, accuracyValues);
     float rawZ = sensorFusion(gzValues, accuracyValues);
     
-    // Apply temporal filtering with appropriate max change rates (degrees/sec²)
+#if ENABLE_TEMPORAL_FILTER
+    // Apply temporal filtering with appropriate max change rates
     xAngularVelocity = applyTemporalFilter("gyro_x", rawX, 180.0f);
     yAngularVelocity = applyTemporalFilter("gyro_y", rawY, 180.0f);
     zAngularVelocity = applyTemporalFilter("gyro_z", rawZ, 180.0f);
+#else
+    // When filtering is disabled, use raw values directly
+    xAngularVelocity = rawX;
+    yAngularVelocity = rawY;
+    zAngularVelocity = rawZ;
+#endif
   }
 }
 
@@ -753,12 +794,17 @@ void Sensors::getFusedOrientation(float &yawOrientation, float &pitchOrientation
     float rawPitch = sensorFusion(pitchValues, accuracyValues, orientationAccuracyValues);
     float rawRoll = sensorFusion(rollValues, accuracyValues, orientationAccuracyValues);
     
-    // Apply angular filtering to handle wrapping correctly
+#if ENABLE_TEMPORAL_FILTER
+    // Apply filtering with appropriate max change rates
     yawOrientation = applyAngularFilter("yaw", rawYaw, 120.0f);
-    
-    // Pitch and roll don't wrap in the same way, use standard filter
     pitchOrientation = applyTemporalFilter("pitch", rawPitch, 60.0f);
     rollOrientation = applyTemporalFilter("roll", rawRoll, 60.0f);
+#else
+    // When filtering is disabled, use raw values directly
+    yawOrientation = rawYaw;
+    pitchOrientation = rawPitch;
+    rollOrientation = rawRoll;
+#endif
   }
 }
 
@@ -823,12 +869,19 @@ void Sensors::getFusedQuaternion(float &quatI, float &quatJ, float &quatK, float
     float rawK = sensorFusion(kValues, accuracyValues);
     float rawReal = sensorFusion(realValues, accuracyValues);
     
+#if ENABLE_TEMPORAL_FILTER
     // Apply temporal filtering with appropriate max change rates
-    // Quaternions change more slowly than Euler angles
     quatI = applyTemporalFilter("quat_i", rawI, 0.5f);
     quatJ = applyTemporalFilter("quat_j", rawJ, 0.5f);
     quatK = applyTemporalFilter("quat_k", rawK, 0.5f);
     quatReal = applyTemporalFilter("quat_real", rawReal, 0.5f);
+#else
+    // When filtering is disabled, use raw values directly
+    quatI = rawI;
+    quatJ = rawJ;
+    quatK = rawK;
+    quatReal = rawReal;
+#endif
     
     // Normalize the quaternion
     float norm = sqrt(quatI*quatI + quatJ*quatJ + quatK*quatK + quatReal*quatReal);
@@ -1474,14 +1527,14 @@ float Sensors::applyAngularFilter(const std::string& sensorKey, float newValue, 
   
 #if SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_SIMPLE
   // Simple smoothing for angles
-  result = lastValue + FILTER_ALPHA_SIMPLE * diff;
+  result = lastValue + FILTER_ALPHA_SIMPLE * (newValue - lastValue);
   
 #elif SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_ADAPTIVE
   // Adaptive smoothing for angles
   float changeRatio = fabs(diff) / (maxChange > 0.0001f ? maxChange : 0.0001f);
   changeRatio = min(1.0f, changeRatio);
   float adaptiveAlpha = 0.05f + 0.25f * changeRatio;
-  result = lastValue + adaptiveAlpha * diff;
+  result = lastValue + adaptiveAlpha * (newValue - lastValue);
   
 #elif SELECTED_FILTER_ALGORITHM == FILTER_ALGORITHM_DOUBLE_EXP
   // Double exponential for angles (using intermediate value)
@@ -1492,14 +1545,10 @@ float Sensors::applyAngularFilter(const std::string& sensorKey, float newValue, 
                      interm_it->second : lastValue;
   
   // First stage: adjust intermediate value
-  intermValue = intermValue + FILTER_ALPHA1_DOUBLE * diff;
+  intermValue = intermValue + FILTER_ALPHA1_DOUBLE * (newValue - intermValue);
   
   // Second stage: calculate result using intermediate value
-  float diffInterm = intermValue - lastValue;
-  if (diffInterm > 180.0f) diffInterm -= 360.0f;
-  if (diffInterm < -180.0f) diffInterm += 360.0f;
-  
-  result = lastValue + FILTER_ALPHA2_DOUBLE * diffInterm;
+  result = lastValue + FILTER_ALPHA2_DOUBLE * (intermValue - lastValue);
   
   // Store intermediate value
   intermediateAngles[sensorKey] = intermValue;
@@ -1512,8 +1561,8 @@ float Sensors::applyAngularFilter(const std::string& sensorKey, float newValue, 
   // Update stored value
   lastFusedValues[sensorKey] = result;
   return result;
-  
 #else
+  // When filtering is disabled, just pass through the raw value
   return newValue;
 #endif
 }

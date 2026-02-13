@@ -41,7 +41,26 @@ IMUDisplayData imu2Display;
 IMUDisplayData imu3Display;
 
 unsigned long lastDisplayTime = 0;
-const unsigned long DISPLAY_INTERVAL = 1000; // 1 second refresh
+const unsigned long DISPLAY_INTERVAL = 500; // 1 second refresh
+
+unsigned long getPollTime(int i){
+  switch (i)
+  {
+  case 1:
+    return sensors.lastIMU1UpdateTime;
+    break;
+  case 2:
+    return sensors.lastIMU2UpdateTime;
+    break;
+  case 3:
+    return sensors.lastIMU3UpdateTime;
+    break;
+  
+  default:
+    break;
+  }
+  return -1;
+}
 
 void displaySensorData() {
   Serial.println("\n-------------------------------------------------");
@@ -113,7 +132,9 @@ void displaySensorData() {
       Serial.print(": "); Serial.print(yawValues[i], 2);
       Serial.print("° (Accuracy: "); Serial.print((int)accuracyValues[i]);
       Serial.print(", Orient Acc: "); Serial.print(orientationAccuracyValues[i], 3);
-      Serial.println("°)");
+      Serial.print("°, Poll time: "); Serial.print(getPollTime(i+1));
+      Serial.println("ms)");
+
     } else {
       Serial.print("  IMU"); Serial.print(i+1);
       Serial.println(": INVALID DATA");
@@ -175,6 +196,8 @@ void setup() {
   
   Serial.println("Setup complete! Beginning sensor fusion test...");
 }
+
+
 
 void loop() {
   // Update our vectors with latest raw data for display - but only consider connected IMUs
